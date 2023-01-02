@@ -58,8 +58,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_DECREASE_OUTPUT): cv.use_id(output.FloatOutput),
             cv.Optional(CONF_DEADBAND_PARAMETERS): cv.Schema(
                 {
-                    cv.Required(CONF_THRESHOLD_HIGH): cv.float,
-                    cv.Required(CONF_THRESHOLD_LOW): cv.float,
+                    cv.Required(CONF_THRESHOLD_HIGH): cv.float_,
+                    cv.Required(CONF_THRESHOLD_LOW): cv.float_,
                     cv.Optional(CONF_KP_MULTIPLIER, default=0.1): cv.float_,
                     cv.Optional(CONF_KI_MULTIPLIER, default=0.0): cv.float_,
                     cv.Optional(CONF_KD_MULTIPLIER, default=0.0): cv.float_,
