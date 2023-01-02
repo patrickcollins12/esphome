@@ -15,6 +15,7 @@ struct PIDController {
   bool in_deadband();
 
   friend class PIDClimate;
+  friend class PID;
 
  private:
   /// Proportional gain K_p.
