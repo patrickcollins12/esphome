@@ -1,7 +1,7 @@
 #include "pid_controller.h"
 
 namespace esphome {
-namespace pid {
+namespace pid_base {
 
 float PIDController::update(float setpoint, float process_value) {
   // e(t) ... error at timestamp t

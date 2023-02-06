@@ -10,7 +10,7 @@ RemoteTransmitterComponent = remote_transmitter_ns.class_(
     "RemoteTransmitterComponent", remote_base.RemoteTransmitterBase, cg.Component
 )
 
-MULTI_CONF = True
+# MULTI_CONF = True
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(RemoteTransmitterComponent),

@@ -3,20 +3,21 @@
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/automation.h"
-#include "esphome/components/climate/climate.h"
+// #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
-#include "pid_controller.h"
-#include "pid_autotuner.h"
+#include "esphome/components/pid_generic/pid_controller.h"
+#include "esphome/components/pid_generic/pid_autotuner.h"
 
 namespace esphome {
-namespace pid {
+namespace pid_generic {
 
-class PID : public Component {
+class PID : public Component, public EntityBase {
  public:
   PID() = default;
   void setup() override;
   void dump_config() override;
+  void publish_state();
 
   void set_sensor(sensor::Sensor *sensor) { sensor_ = sensor; }
   void set_decrease_output(output::FloatOutput *decrease_output) { decrease_output_ = decrease_output; }
@@ -64,14 +65,11 @@ class PID : public Component {
   void add_on_pid_computed_callback(std::function<void()> &&callback) {
     pid_computed_callback_.add(std::move(callback));
   }
-  void set_default_target_value(float default_target_value) {
-    default_target_value_ = default_target_value;
-  }
-  void start_autotune(std::unique_ptr<PIDAutotuner> &&autotune);
+  void set_default_target_value(float default_target_value) { default_target_value_ = default_target_value; }
+  void start_autotune(std::unique_ptr<pid_base::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
-
   void update_pid_();
 
   // bool supports_cool_() const { return this->decrease_output_ != nullptr; }
@@ -83,12 +81,15 @@ class PID : public Component {
   sensor::Sensor *sensor_;
   output::FloatOutput *decrease_output_{nullptr};
   output::FloatOutput *increase_output_{nullptr};
-  PIDController controller_;
+  pid::PIDController controller_;
+
   /// Output value as reported by the PID controller, for PIDSensor
   float output_value_;
   CallbackManager<void()> pid_computed_callback_;
   float default_target_value_;
-  std::unique_ptr<PIDAutotuner> autotuner_;
+  float target_value_;
+  float current_value_;
+  std::unique_ptr<pid_base::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
@@ -101,7 +102,7 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
   void play(Ts... x) {
-    auto tuner = make_unique<PIDAutotuner>();
+    auto tuner = make_unique<pid_base::PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
     tuner->set_output_positive(this->positive_output_);
@@ -144,8 +145,8 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
   TEMPLATABLE_VALUE(float, ki)
   TEMPLATABLE_VALUE(float, kd)
 
-  PIDClimate *parent_;
+  PID *parent_;
 };
 
-}  // namespace pid
+}  // namespace pid_generic
 }  // namespace esphome

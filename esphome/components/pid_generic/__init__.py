@@ -1,13 +1,17 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
+
+# from esphome.components import mqtt
 from esphome.components import sensor, output
 from esphome.const import CONF_ID, CONF_SENSOR
 
 CODEOWNERS = ["@patrickcollins12"]
+# AUTO_LOAD = ["pid_generic"]
 
-pid_ns = cg.esphome_ns.namespace("pid")
-PID = pid_ns.class_("PID", cg.Component)
+pid_ns = cg.esphome_ns.namespace("pid_generic")
+PID = pid_ns.class_("PID", cg.Component, cg.EntityBase)
+
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
 PIDResetIntegralTermAction = pid_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
@@ -48,12 +52,14 @@ CONF_KP_MULTIPLIER = "kp_multiplier"
 CONF_KI_MULTIPLIER = "ki_multiplier"
 CONF_KD_MULTIPLIER = "kd_multiplier"
 
-CONFIG_SCHEMA = cv.All(
+MULTI_CONF = True
+CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(PID),
+            # cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTPIDComponent),
             cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
-            cv.Required(CONF_DEFAULT_TARGET): cv.float,
+            cv.Required(CONF_DEFAULT_TARGET): cv.float_,
             cv.Optional(CONF_INCREASE_OUTPUT): cv.use_id(output.FloatOutput),
             cv.Optional(CONF_DECREASE_OUTPUT): cv.use_id(output.FloatOutput),
             cv.Optional(CONF_DEADBAND_PARAMETERS): cv.Schema(
@@ -81,12 +87,25 @@ CONFIG_SCHEMA = cv.All(
                 }
             ),
         }
-    ),
-    cv.has_at_least_one_key(CONF_INCREASE_OUTPUT, CONF_DECREASE_OUTPUT),
+    )
+    .extend(cv.COMPONENT_SCHEMA)
+    .extend(cv.ENTITY_BASE_SCHEMA)
 )
 
 
+# CONFIG_SCHEMA = cv.All(
+#     cv.ensure_list(PID_SCHEMA),
+#     cv.has_at_least_one_key(CONF_INCREASE_OUTPUT, CONF_DECREASE_OUTPUT),
+# )
+
+
 async def to_code(config):
+    from pprint import pprint
+
+    print("Hi!!\n")
+    # print(config)
+    pprint(config)
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     # await climate.register_climate(var, config)
@@ -96,10 +115,10 @@ async def to_code(config):
 
     if CONF_DECREASE_OUTPUT in config:
         out = await cg.get_variable(config[CONF_DECREASE_OUTPUT])
-        cg.add(var.set_cool_output(out))
+        cg.add(var.set_decrease_output(out))
     if CONF_INCREASE_OUTPUT in config:
         out = await cg.get_variable(config[CONF_INCREASE_OUTPUT])
-        cg.add(var.set_heat_output(out))
+        cg.add(var.set_increase_output(out))
     params = config[CONF_CONTROL_PARAMETERS]
     cg.add(var.set_kp(params[CONF_KP]))
     cg.add(var.set_ki(params[CONF_KI]))
@@ -127,7 +146,7 @@ async def to_code(config):
             )
         )
 
-    cg.add(var.set_default_target_temperature(config[CONF_DEFAULT_TARGET]))
+    cg.add(var.set_default_target_value(config[CONF_DEFAULT_TARGET]))
 
 
 @automation.register_action(
@@ -170,7 +189,7 @@ async def esp8266_set_frequency_to_code(config, action_id, template_arg, args):
 
 
 @automation.register_action(
-    "climate.pid.set_control_parameters",
+    "pid.set_control_parameters",
     PIDSetControlParametersAction,
     automation.maybe_simple_id(
         {

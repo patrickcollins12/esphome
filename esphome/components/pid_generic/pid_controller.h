@@ -4,9 +4,11 @@
 #include <cmath>
 
 namespace esphome {
-namespace pid {
+namespace pid_base {
 
 struct PIDController {
+  // friend class esphome::pid::PIDClimate;
+  // friend class esphome::pid_generic::PID;
   float update(float setpoint, float process_value);
 
   void reset_accumulated_integral() { accumulated_integral_ = 0; }
@@ -14,10 +16,6 @@ struct PIDController {
 
   bool in_deadband();
 
-  friend class PIDClimate;
-  friend class PID;
-
- private:
   /// Proportional gain K_p.
   float kp_ = 0;
   /// Integral gain K_i.
@@ -48,6 +46,7 @@ struct PIDController {
   float integral_term_;
   float derivative_term_;
 
+ private:
   void calculate_proportional_term_();
   void calculate_integral_term_();
   void calculate_derivative_term_();
@@ -67,5 +66,5 @@ struct PIDController {
   std::deque<float> output_list_;
 
 };  // Struct PID Controller
-}  // namespace pid
+}  // namespace pid_base
 }  // namespace esphome
