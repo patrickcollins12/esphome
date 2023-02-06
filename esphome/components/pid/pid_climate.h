@@ -6,8 +6,8 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
-#include "pid_controller.h"
-#include "pid_autotuner.h"
+#include "esphome/components/pid_generic/pid_controller.h"
+#include "esphome/components/pid_generic/pid_autotuner.h"
 
 namespace esphome {
 namespace pid {
@@ -67,7 +67,7 @@ class PIDClimate : public climate::Climate, public Component {
   void set_default_target_temperature(float default_target_temperature) {
     default_target_temperature_ = default_target_temperature;
   }
-  void start_autotune(std::unique_ptr<PIDAutotuner> &&autotune);
+  void start_autotune(std::unique_ptr<pid_base::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
@@ -87,25 +87,25 @@ class PIDClimate : public climate::Climate, public Component {
   sensor::Sensor *sensor_;
   output::FloatOutput *cool_output_{nullptr};
   output::FloatOutput *heat_output_{nullptr};
-  PIDController controller_;
+  pid::PIDController controller_;
   /// Output value as reported by the PID controller, for PIDClimateSensor
   float output_value_;
   CallbackManager<void()> pid_computed_callback_;
   float default_target_temperature_;
-  std::unique_ptr<PIDAutotuner> autotuner_;
+  std::unique_ptr<pid_base::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
-template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
+template<typename... Ts> class PIDClimateAutotuneAction : public Action<Ts...> {
  public:
-  PIDAutotuneAction(PIDClimate *parent) : parent_(parent) {}
+  PIDClimateAutotuneAction(PIDClimate *parent) : parent_(parent) {}
 
   void set_noiseband(float noiseband) { noiseband_ = noiseband; }
   void set_positive_output(float positive_output) { positive_output_ = positive_output; }
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
   void play(Ts... x) {
-    auto tuner = make_unique<PIDAutotuner>();
+    auto tuner = make_unique<pid_base::PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
     tuner->set_output_positive(this->positive_output_);
@@ -119,9 +119,9 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   PIDClimate *parent_;
 };
 
-template<typename... Ts> class PIDResetIntegralTermAction : public Action<Ts...> {
+template<typename... Ts> class PIDClimateResetIntegralTermAction : public Action<Ts...> {
  public:
-  PIDResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
+  PIDClimateResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
 
   void play(Ts... x) { this->parent_->reset_integral_term(); }
 
@@ -129,9 +129,9 @@ template<typename... Ts> class PIDResetIntegralTermAction : public Action<Ts...>
   PIDClimate *parent_;
 };
 
-template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts...> {
+template<typename... Ts> class PIDClimateSetControlParametersAction : public Action<Ts...> {
  public:
-  PIDSetControlParametersAction(PIDClimate *parent) : parent_(parent) {}
+  PIDClimateSetControlParametersAction(PIDClimate *parent) : parent_(parent) {}
 
   void play(Ts... x) {
     auto kp = this->kp_.value(x...);
