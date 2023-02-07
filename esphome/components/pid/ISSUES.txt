@@ -7,3 +7,4 @@ There is a pid sensor name clash with climate
     climate_id: console_thermostat
     type: COOL
 
+
