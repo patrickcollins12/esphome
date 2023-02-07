@@ -12,9 +12,9 @@
 namespace esphome {
 namespace pid {
 
-class PID : public climate::Climate, public Component {
+class PIDClimate : public climate::Climate, public Component {
  public:
-  PID() = default;
+  PIDClimate() = default;
   void setup() override;
   void dump_config() override;
 
@@ -98,7 +98,7 @@ class PID : public climate::Climate, public Component {
 
 template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
  public:
-  PIDAutotuneAction(PID *parent) : parent_(parent) {}
+  PIDAutotuneAction(PIDClimate *parent) : parent_(parent) {}
 
   void set_noiseband(float noiseband) { noiseband_ = noiseband; }
   void set_positive_output(float positive_output) { positive_output_ = positive_output; }
@@ -116,22 +116,22 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   float noiseband_;
   float positive_output_;
   float negative_output_;
-  PID *parent_;
+  PIDClimate *parent_;
 };
 
 template<typename... Ts> class PIDResetIntegralTermAction : public Action<Ts...> {
  public:
-  PIDResetIntegralTermAction(PID *parent) : parent_(parent) {}
+  PIDResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
 
   void play(Ts... x) { this->parent_->reset_integral_term(); }
 
  protected:
-  PID *parent_;
+  PIDClimate *parent_;
 };
 
 template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts...> {
  public:
-  PIDSetControlParametersAction(PID *parent) : parent_(parent) {}
+  PIDSetControlParametersAction(PIDClimate *parent) : parent_(parent) {}
 
   void play(Ts... x) {
     auto kp = this->kp_.value(x...);
@@ -148,7 +148,7 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
   TEMPLATABLE_VALUE(float, ki)
   TEMPLATABLE_VALUE(float, kd)
 
-  PID *parent_;
+  PIDClimate *parent_;
 };
 
 }  // namespace pid

@@ -6,7 +6,7 @@ namespace pid {
 
 static const char *const TAG = "pid.climate";
 
-void PID::setup() {
+void PIDClimate::setup() {
   this->sensor_->add_on_state_callback([this](float state) {
     // only publish if state/current temperature has changed in two digits of precision
     this->do_publish_ = roundf(state * 100) != roundf(this->current_temperature * 100);
@@ -30,7 +30,7 @@ void PID::setup() {
     this->target_temperature = this->default_target_temperature_;
   }
 }
-void PID::control(const climate::ClimateCall &call) {
+void PIDClimate::control(const climate::ClimateCall &call) {
   if (call.get_mode().has_value())
     this->mode = *call.get_mode();
   if (call.get_target_temperature().has_value())
@@ -42,7 +42,7 @@ void PID::control(const climate::ClimateCall &call) {
 
   this->publish_state();
 }
-climate::ClimateTraits PID::traits() {
+climate::ClimateTraits PIDClimate::traits() {
   auto traits = climate::ClimateTraits();
   traits.set_supports_current_temperature(true);
   traits.set_supports_two_point_target_temperature(false);
@@ -58,7 +58,7 @@ climate::ClimateTraits PID::traits() {
   traits.set_supports_action(true);
   return traits;
 }
-void PID::dump_config() {
+void PIDClimate::dump_config() {
   LOG_CLIMATE("", "PID Climate", this);
   ESP_LOGCONFIG(TAG, "  Control Parameters:");
   ESP_LOGCONFIG(TAG, "    kp: %.5f, ki: %.5f, kd: %.5f, output samples: %d", controller_.kp_, controller_.ki_,
@@ -77,7 +77,7 @@ void PID::dump_config() {
     this->autotuner_->dump_config();
   }
 }
-void PID::write_output_(float value) {
+void PIDClimate::write_output_(float value) {
   this->output_value_ = value;
 
   // first ensure outputs are off (both outputs not active at the same time)
@@ -110,7 +110,7 @@ void PID::write_output_(float value) {
   }
   this->pid_computed_callback_.call();
 }
-void PID::update_pid_() {
+void PIDClimate::update_pid_() {
   float value;
   if (std::isnan(this->current_temperature) || std::isnan(this->target_temperature)) {
     // if any control parameters are nan, turn off all outputs
@@ -144,7 +144,7 @@ void PID::update_pid_() {
     this->publish_state();
 }
 
-void PID::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune) {
+void PIDClimate::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune) {
   this->autotuner_ = std::move(autotune);
   float min_value = this->supports_cool_() ? -1.0f : 0.0f;
   float max_value = this->supports_heat_() ? 1.0f : 0.0f;
@@ -170,7 +170,7 @@ void PID::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune) {
   }
 }
 
-void PID::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
+void PIDClimate::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
 
 }  // namespace pid
 }  // namespace esphome

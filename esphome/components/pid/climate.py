@@ -5,7 +5,7 @@ from esphome.components import climate, sensor, output
 from esphome.const import CONF_ID, CONF_SENSOR
 
 pid_ns = cg.esphome_ns.namespace("pid")
-PID = pid_ns.class_("PID", climate.Climate, cg.Component)
+PIDClimate = pid_ns.class_("PIDClimate", climate.Climate, cg.Component)
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
 PIDResetIntegralTermAction = pid_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
@@ -46,7 +46,7 @@ CONF_KD_MULTIPLIER = "kd_multiplier"
 CONFIG_SCHEMA = cv.All(
     climate.CLIMATE_SCHEMA.extend(
         {
-            cv.GenerateID(): cv.declare_id(PID),
+            cv.GenerateID(): cv.declare_id(PIDClimate),
             cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
             cv.Required(CONF_DEFAULT_TARGET_TEMPERATURE): cv.temperature,
             cv.Optional(CONF_COOL_OUTPUT): cv.use_id(output.FloatOutput),
@@ -140,7 +140,7 @@ async def to_code(config):
     PIDResetIntegralTermAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDClimate),
         }
     ),
 )
@@ -154,7 +154,7 @@ async def pid_reset_integral_term(config, action_id, template_arg, args):
     PIDAutotuneAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDClimate),
             cv.Optional(CONF_NOISEBAND, default=0.25): cv.float_,
             cv.Optional(
                 CONF_POSITIVE_OUTPUT, default=1.0
@@ -179,7 +179,7 @@ async def esp8266_set_frequency_to_code(config, action_id, template_arg, args):
     PIDSetControlParametersAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDClimate),
             cv.Required(CONF_KP): cv.templatable(cv.float_),
             cv.Optional(CONF_KI, default=0.0): cv.templatable(cv.float_),
             cv.Optional(CONF_KD, default=0.0): cv.templatable(cv.float_),
