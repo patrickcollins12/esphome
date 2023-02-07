@@ -3,25 +3,25 @@
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/automation.h"
-#include "esphome/components/climate/climate.h"
+// #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
 #include "esphome/components/pid_shared/pid_controller.h"
 #include "esphome/components/pid_shared/pid_autotuner.h"
-#include "esphome/components/pid_shared/pid_base.h"
 
 namespace esphome {
-namespace pid {
+namespace pid_shared {
 
-class PIDClimate : public climate::Climate, pid_shared::PIDBase {  // public Component {
+class PIDBase : public Component, public EntityBase {
  public:
-  PIDClimate() = default;
+  PIDBase() = default;
   void setup() override;
   void dump_config() override;
+  void publish_state();
 
   void set_sensor(sensor::Sensor *sensor) { sensor_ = sensor; }
-  void set_cool_output(output::FloatOutput *cool_output) { cool_output_ = cool_output; }
-  void set_heat_output(output::FloatOutput *heat_output) { heat_output_ = heat_output; }
+  void set_decrease_output(output::FloatOutput *decrease_output) { decrease_output_ = decrease_output; }
+  void set_increase_output(output::FloatOutput *increase_output) { increase_output_ = increase_output; }
   void set_kp(float kp) { controller_.kp_ = kp; }
   void set_ki(float ki) { controller_.ki_ = ki; }
   void set_kd(float kd) { controller_.kd_ = kd; }
@@ -65,41 +65,37 @@ class PIDClimate : public climate::Climate, pid_shared::PIDBase {  // public Com
   void add_on_pid_computed_callback(std::function<void()> &&callback) {
     pid_computed_callback_.add(std::move(callback));
   }
-  void set_default_target_temperature(float default_target_temperature) {
-    default_target_temperature_ = default_target_temperature;
-  }
+  void set_default_target_value(float default_target_value) { default_target_value_ = default_target_value; }
   void start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
-  /// Override control to change settings of the climate device.
-  void control(const climate::ClimateCall &call) override;
-  /// Return the traits of this controller.
-  climate::ClimateTraits traits() override;
-
   void update_pid_();
 
-  bool supports_cool_() const { return this->cool_output_ != nullptr; }
-  bool supports_heat_() const { return this->heat_output_ != nullptr; }
+  // bool supports_cool_() const { return this->decrease_output_ != nullptr; }
+  // bool supports_heat_() const { return this->increase_output_ != nullptr; }
 
   void write_output_(float value);
 
-  /// The sensor used for getting the current temperature
+  /// The sensor used for getting the current value
   sensor::Sensor *sensor_;
-  output::FloatOutput *cool_output_{nullptr};
-  output::FloatOutput *heat_output_{nullptr};
+  output::FloatOutput *decrease_output_{nullptr};
+  output::FloatOutput *increase_output_{nullptr};
   pid_shared::PIDController controller_;
+
   /// Output value as reported by the PID controller, for PIDSensor
   float output_value_;
   CallbackManager<void()> pid_computed_callback_;
-  float default_target_temperature_;
+  float default_target_value_;
+  float target_value_;
+  float current_value_;
   std::unique_ptr<pid_shared::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
 template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
  public:
-  PIDAutotuneAction(PIDClimate *parent) : parent_(parent) {}
+  PIDAutotuneAction(PIDBase *parent) : parent_(parent) {}
 
   void set_noiseband(float noiseband) { noiseband_ = noiseband; }
   void set_positive_output(float positive_output) { positive_output_ = positive_output; }
@@ -117,22 +113,22 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   float noiseband_;
   float positive_output_;
   float negative_output_;
-  PIDClimate *parent_;
+  PIDBase *parent_;
 };
 
 template<typename... Ts> class PIDResetIntegralTermAction : public Action<Ts...> {
  public:
-  PIDResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
+  PIDResetIntegralTermAction(PIDBase *parent) : parent_(parent) {}
 
   void play(Ts... x) { this->parent_->reset_integral_term(); }
 
  protected:
-  PIDClimate *parent_;
+  PIDBase *parent_;
 };
 
 template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts...> {
  public:
-  PIDSetControlParametersAction(PIDClimate *parent) : parent_(parent) {}
+  PIDSetControlParametersAction(PIDBase *parent) : parent_(parent) {}
 
   void play(Ts... x) {
     auto kp = this->kp_.value(x...);
@@ -149,8 +145,8 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
   TEMPLATABLE_VALUE(float, ki)
   TEMPLATABLE_VALUE(float, kd)
 
-  PIDClimate *parent_;
+  PIDBase *parent_;
 };
 
-}  // namespace pid
+}  // namespace pid_shared
 }  // namespace esphome
