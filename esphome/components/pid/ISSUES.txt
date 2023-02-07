@@ -1,0 +1,9 @@
+ISSUES:
+
+There is a pid sensor name clash with climate
+  sensor:
+  - platform: pid
+    name: "Fan Speed (PWM Voltage)"
+    climate_id: console_thermostat
+    type: COOL
+

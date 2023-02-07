@@ -6,11 +6,11 @@
 // #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
-#include "esphome/components/pid_generic/pid_controller.h"
-#include "esphome/components/pid_generic/pid_autotuner.h"
+#include "esphome/components/pid_shared/pid_controller.h"
+#include "esphome/components/pid_shared/pid_autotuner.h"
 
 namespace esphome {
-namespace pid_generic {
+namespace pid_control {
 
 class PID : public Component, public EntityBase {
  public:
@@ -66,7 +66,7 @@ class PID : public Component, public EntityBase {
     pid_computed_callback_.add(std::move(callback));
   }
   void set_default_target_value(float default_target_value) { default_target_value_ = default_target_value; }
-  void start_autotune(std::unique_ptr<pid_base::PIDAutotuner> &&autotune);
+  void start_autotune(std::unique_ptr<pid::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
@@ -89,7 +89,7 @@ class PID : public Component, public EntityBase {
   float default_target_value_;
   float target_value_;
   float current_value_;
-  std::unique_ptr<pid_base::PIDAutotuner> autotuner_;
+  std::unique_ptr<pid::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
@@ -102,7 +102,7 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
   void play(Ts... x) {
-    auto tuner = make_unique<pid_base::PIDAutotuner>();
+    auto tuner = make_unique<pid::PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
     tuner->set_output_positive(this->positive_output_);
@@ -148,5 +148,5 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
   PID *parent_;
 };
 
-}  // namespace pid_generic
+}  // namespace pid_controller
 }  // namespace esphome

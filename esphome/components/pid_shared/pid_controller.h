@@ -4,11 +4,9 @@
 #include <cmath>
 
 namespace esphome {
-namespace pid_base {
+namespace pid {
 
 struct PIDController {
-  // friend class esphome::pid::PIDClimate;
-  // friend class esphome::pid_generic::PID;
   float update(float setpoint, float process_value);
 
   void reset_accumulated_integral() { accumulated_integral_ = 0; }
@@ -66,5 +64,5 @@ struct PIDController {
   std::deque<float> output_list_;
 
 };  // Struct PID Controller
-}  // namespace pid_base
+}  // namespace pid
 }  // namespace esphome

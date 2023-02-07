@@ -7,9 +7,9 @@ from esphome.components import sensor, output
 from esphome.const import CONF_ID, CONF_SENSOR
 
 CODEOWNERS = ["@patrickcollins12"]
-# AUTO_LOAD = ["pid_generic"]
+AUTO_LOAD = ["pid_shared"]
 
-pid_ns = cg.esphome_ns.namespace("pid_generic")
+pid_ns = cg.esphome_ns.namespace("pid_control")
 PID = pid_ns.class_("PID", cg.Component, cg.EntityBase)
 
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
@@ -100,11 +100,6 @@ CONFIG_SCHEMA = (
 
 
 async def to_code(config):
-    from pprint import pprint
-
-    print("Hi!!\n")
-    # print(config)
-    pprint(config)
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

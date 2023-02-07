@@ -1,8 +1,8 @@
-#include "pid_generic.h"
+#include "pid_control.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
-namespace pid_generic {
+namespace pid_control {
 
 static const char *const TAG = "pid";
 
@@ -148,7 +148,7 @@ void PID::update_pid_() {
 
 void PID::publish_state() { ESP_LOGD(TAG, "'%s' - Sending state:", this->current_value_); }
 
-void PID::start_autotune(std::unique_ptr<pid_base::PIDAutotuner> &&autotune) {
+void PID::start_autotune(std::unique_ptr<pid::PIDAutotuner> &&autotune) {
   this->autotuner_ = std::move(autotune);
   // float min_value = this->supports_cool_() ? -1.0f : 0.0f;
   // float max_value = this->supports_heat_() ? 1.0f : 0.0f;
@@ -176,5 +176,5 @@ void PID::start_autotune(std::unique_ptr<pid_base::PIDAutotuner> &&autotune) {
 
 void PID::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
 
-}  // namespace pid_generic
+}  // namespace pid_controller
 }  // namespace esphome

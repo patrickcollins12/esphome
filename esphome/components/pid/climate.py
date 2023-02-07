@@ -5,14 +5,16 @@ from esphome.components import climate, sensor, output
 from esphome.const import CONF_ID, CONF_SENSOR
 
 pid_ns = cg.esphome_ns.namespace("pid")
-PIDClimate = pid_ns.class_("PIDClimate", climate.Climate, cg.Component)
+PID = pid_ns.class_("PID", climate.Climate, cg.Component)
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
-PIDClimateResetIntegralTermAction = pid_ns.class_(
-    "PIDClimateResetIntegralTermAction", automation.Action
+PIDResetIntegralTermAction = pid_ns.class_(
+    "PIDResetIntegralTermAction", automation.Action
 )
-PIDClimateSetControlParametersAction = pid_ns.class_(
-    "PIDClimateSetControlParametersAction", automation.Action
+PIDSetControlParametersAction = pid_ns.class_(
+    "PIDSetControlParametersAction", automation.Action
 )
+
+AUTO_LOAD = ["pid_shared"]
 
 CONF_DEFAULT_TARGET_TEMPERATURE = "default_target_temperature"
 
@@ -40,12 +42,11 @@ CONF_KP_MULTIPLIER = "kp_multiplier"
 CONF_KI_MULTIPLIER = "ki_multiplier"
 CONF_KD_MULTIPLIER = "kd_multiplier"
 
-AUTO_LOAD = ["pid_generic"]
 
 CONFIG_SCHEMA = cv.All(
     climate.CLIMATE_SCHEMA.extend(
         {
-            cv.GenerateID(): cv.declare_id(PIDClimate),
+            cv.GenerateID(): cv.declare_id(PID),
             cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
             cv.Required(CONF_DEFAULT_TARGET_TEMPERATURE): cv.temperature,
             cv.Optional(CONF_COOL_OUTPUT): cv.use_id(output.FloatOutput),
@@ -89,6 +90,12 @@ async def to_code(config):
     await cg.register_component(var, config)
     await climate.register_climate(var, config)
 
+    from pprint import pprint
+
+    print("Hi!!\n")
+    # print(config)
+    pprint(config)
+
     sens = await cg.get_variable(config[CONF_SENSOR])
     cg.add(var.set_sensor(sens))
 
@@ -130,10 +137,10 @@ async def to_code(config):
 
 @automation.register_action(
     "climate.pid.reset_integral_term",
-    PIDClimateResetIntegralTermAction,
+    PIDResetIntegralTermAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PIDClimate),
+            cv.Required(CONF_ID): cv.use_id(PID),
         }
     ),
 )
@@ -147,7 +154,7 @@ async def pid_reset_integral_term(config, action_id, template_arg, args):
     PIDAutotuneAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PIDClimate),
+            cv.Required(CONF_ID): cv.use_id(PID),
             cv.Optional(CONF_NOISEBAND, default=0.25): cv.float_,
             cv.Optional(
                 CONF_POSITIVE_OUTPUT, default=1.0
@@ -169,10 +176,10 @@ async def esp8266_set_frequency_to_code(config, action_id, template_arg, args):
 
 @automation.register_action(
     "climate.pid.set_control_parameters",
-    PIDClimateSetControlParametersAction,
+    PIDSetControlParametersAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PIDClimate),
+            cv.Required(CONF_ID): cv.use_id(PID),
             cv.Required(CONF_KP): cv.templatable(cv.float_),
             cv.Optional(CONF_KI, default=0.0): cv.templatable(cv.float_),
             cv.Optional(CONF_KD, default=0.0): cv.templatable(cv.float_),
