@@ -67,7 +67,7 @@ class PID : public climate::Climate, public Component {
   void set_default_target_temperature(float default_target_temperature) {
     default_target_temperature_ = default_target_temperature;
   }
-  void start_autotune(std::unique_ptr<pid::PIDAutotuner> &&autotune);
+  void start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
@@ -87,12 +87,12 @@ class PID : public climate::Climate, public Component {
   sensor::Sensor *sensor_;
   output::FloatOutput *cool_output_{nullptr};
   output::FloatOutput *heat_output_{nullptr};
-  pid::PIDController controller_;
+  pid_shared::PIDController controller_;
   /// Output value as reported by the PID controller, for PIDSensor
   float output_value_;
   CallbackManager<void()> pid_computed_callback_;
   float default_target_temperature_;
-  std::unique_ptr<pid::PIDAutotuner> autotuner_;
+  std::unique_ptr<pid_shared::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
@@ -105,7 +105,7 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
   void play(Ts... x) {
-    auto tuner = make_unique<pid::PIDAutotuner>();
+    auto tuner = make_unique<pid_shared::PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
     tuner->set_output_positive(this->positive_output_);

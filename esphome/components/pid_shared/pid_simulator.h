@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace esphome {
-namespace pid {
+namespace pid_shared {
 
 class PIDSimulator : public PollingComponent, public output::FloatOutput {
  public:
@@ -73,5 +73,5 @@ class PIDSimulator : public PollingComponent, public output::FloatOutput {
   void write_state(float state) override { this->output_value = state; }
 };
 
-}  // namespace pid
+}  // namespace pid_shared
 }  // namespace esphome

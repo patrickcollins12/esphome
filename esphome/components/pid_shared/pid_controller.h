@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace esphome {
-namespace pid {
+namespace pid_shared {
 
 struct PIDController {
   float update(float setpoint, float process_value);
@@ -64,5 +64,5 @@ struct PIDController {
   std::deque<float> output_list_;
 
 };  // Struct PID Controller
-}  // namespace pid
+}  // namespace pid_shared
 }  // namespace esphome

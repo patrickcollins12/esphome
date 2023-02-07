@@ -144,7 +144,7 @@ void PID::update_pid_() {
     this->publish_state();
 }
 
-void PID::start_autotune(std::unique_ptr<pid::PIDAutotuner> &&autotune) {
+void PID::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune) {
   this->autotuner_ = std::move(autotune);
   float min_value = this->supports_cool_() ? -1.0f : 0.0f;
   float max_value = this->supports_heat_() ? 1.0f : 0.0f;

@@ -66,7 +66,7 @@ class PID : public Component, public EntityBase {
     pid_computed_callback_.add(std::move(callback));
   }
   void set_default_target_value(float default_target_value) { default_target_value_ = default_target_value; }
-  void start_autotune(std::unique_ptr<pid::PIDAutotuner> &&autotune);
+  void start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
  protected:
@@ -81,7 +81,7 @@ class PID : public Component, public EntityBase {
   sensor::Sensor *sensor_;
   output::FloatOutput *decrease_output_{nullptr};
   output::FloatOutput *increase_output_{nullptr};
-  pid::PIDController controller_;
+  pid_shared::PIDController controller_;
 
   /// Output value as reported by the PID controller, for PIDSensor
   float output_value_;
@@ -89,7 +89,7 @@ class PID : public Component, public EntityBase {
   float default_target_value_;
   float target_value_;
   float current_value_;
-  std::unique_ptr<pid::PIDAutotuner> autotuner_;
+  std::unique_ptr<pid_shared::PIDAutotuner> autotuner_;
   bool do_publish_ = false;
 };
 
@@ -102,7 +102,7 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
   void play(Ts... x) {
-    auto tuner = make_unique<pid::PIDAutotuner>();
+    auto tuner = make_unique<pid_shared::PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
     tuner->set_output_positive(this->positive_output_);
@@ -148,5 +148,5 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
   PID *parent_;
 };
 
-}  // namespace pid_controller
+}  // namespace pid_control
 }  // namespace esphome

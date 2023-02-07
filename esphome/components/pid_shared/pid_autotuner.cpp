@@ -6,7 +6,7 @@
 #endif
 
 namespace esphome {
-namespace pid {
+namespace pid_shared {
 
 #define TAG this->get_id()
 
@@ -359,5 +359,5 @@ bool PIDAutotuner::OscillationAmplitudeDetector::is_amplitude_convergent() const
   return (mean_amplitude - global_amplitude) / (global_amplitude) < 0.05f;
 }
 
-}  // namespace pid
+}  // namespace pid_shared
 }  // namespace esphome
