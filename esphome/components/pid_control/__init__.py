@@ -10,7 +10,7 @@ CODEOWNERS = ["@patrickcollins12"]
 AUTO_LOAD = ["pid_shared"]
 
 pid_ns = cg.esphome_ns.namespace("pid_control")
-PID = pid_ns.class_("PID", cg.Component, cg.EntityBase)
+PIDControl = pid_ns.class_("PIDControl", cg.Component, cg.EntityBase)
 
 PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
 PIDResetIntegralTermAction = pid_ns.class_(
@@ -56,7 +56,7 @@ MULTI_CONF = True
 CONFIG_SCHEMA = (
     cv.Schema(
         {
-            cv.GenerateID(): cv.declare_id(PID),
+            cv.GenerateID(): cv.declare_id(PIDControl),
             # cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTPIDComponent),
             cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
             cv.Required(CONF_DEFAULT_TARGET): cv.float_,
@@ -149,7 +149,7 @@ async def to_code(config):
     PIDResetIntegralTermAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDControl),
         }
     ),
 )
@@ -163,7 +163,7 @@ async def pid_reset_integral_term(config, action_id, template_arg, args):
     PIDAutotuneAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDControl),
             cv.Optional(CONF_NOISEBAND, default=0.25): cv.float_,
             cv.Optional(
                 CONF_POSITIVE_OUTPUT, default=1.0
@@ -188,7 +188,7 @@ async def esp8266_set_frequency_to_code(config, action_id, template_arg, args):
     PIDSetControlParametersAction,
     automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(PID),
+            cv.Required(CONF_ID): cv.use_id(PIDControl),
             cv.Required(CONF_KP): cv.templatable(cv.float_),
             cv.Optional(CONF_KI, default=0.0): cv.templatable(cv.float_),
             cv.Optional(CONF_KD, default=0.0): cv.templatable(cv.float_),

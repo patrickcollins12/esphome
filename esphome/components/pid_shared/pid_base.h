@@ -15,9 +15,11 @@ namespace pid_shared {
 class PIDBase : public Component, public EntityBase {
  public:
   PIDBase() = default;
-  void setup() override;
-  void dump_config() override;
-  void publish_state();
+  virtual ~PIDBase() {}
+  void setup() {} // to be defined in the derived class but needs to be here
+  void dump_config();
+
+  // void publish_state();
 
   void set_sensor(sensor::Sensor *sensor) { sensor_ = sensor; }
   void set_decrease_output(output::FloatOutput *decrease_output) { decrease_output_ = decrease_output; }

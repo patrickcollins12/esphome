@@ -149,9 +149,9 @@ void PIDClimate::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&auto
   float min_value = this->supports_cool_() ? -1.0f : 0.0f;
   float max_value = this->supports_heat_() ? 1.0f : 0.0f;
   this->autotuner_->config(min_value, max_value);
-  this->autotuner_->set_autotuner_id(this->get_object_id());
+  this->autotuner_->set_autotuner_id(this->PIDBase::get_object_id());
 
-  std::string TAG2 = TAG + std::string(".") + this->get_object_id();
+  std::string TAG2 = TAG + std::string(".") + this->PIDBase::get_object_id();
 
   ESP_LOGI(TAG2.c_str(),
            "Autotune has started. This can take a long time depending on the "

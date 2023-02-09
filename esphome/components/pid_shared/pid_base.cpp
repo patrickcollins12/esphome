@@ -6,58 +6,6 @@ namespace pid_shared {
 
 static const char *const TAG = "pid";
 
-void PIDBase::setup() {
-  this->sensor_->add_on_state_callback([this](float state) {
-    // only publish if state/current value has changed in two digits of precision
-    this->do_publish_ = roundf(state * 100) != roundf(this->current_value_ * 100);
-    this->current_value_ = state;
-    this->update_pid_();
-  });
-  this->current_value_ = this->sensor_->state;
-  // restore set points
-  // auto restore = this->restore_state_();
-  // if (restore.has_value()) {
-  //   restore->to_call(this).perform();
-  // } else {
-  // restore from defaults, change_away handles those for us
-  // if (supports_heat_() && supports_cool_()) {
-  //   this->mode = climate::CLIMATE_MODE_HEAT_COOL;
-  // } else if (supports_cool_()) {
-  //   this->mode = climate::CLIMATE_MODE_COOL;
-  // } else if (supports_heat_()) {
-  //   this->mode = climate::CLIMATE_MODE_HEAT;
-  // }
-  this->target_value_ = this->default_target_value_;
-}
-
-// void PIDBase::control(const climate::ClimateCall &call) {
-//   if (call.get_mode().has_value())
-//     this->mode = *call.get_mode();
-//   if (call.get_target_value().has_value())
-//     this->target_value = *call.get_target_value();
-
-//   // If switching to off mode, set output immediately
-//   if (this->mode == climate::CLIMATE_MODE_OFF)
-//     this->write_output_(0.0f);
-
-//   this->publish_state();
-// }
-// climate::ClimateTraits PIDBase::traits() {
-//   auto traits = climate::ClimateTraits();
-//   traits.set_supports_current_value(true);
-//   traits.set_supports_two_point_target_value(false);
-
-//   traits.set_supported_modes({climate::CLIMATE_MODE_OFF});
-//   if (supports_cool_())
-//     traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
-//   if (supports_heat_())
-//     traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
-//   if (supports_heat_() && supports_cool_())
-//     traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
-
-//   traits.set_supports_action(true);
-//   return traits;
-// }
 void PIDBase::dump_config() {
   // TODO
   // LOG_CLIMATE("", "PID", this);
@@ -78,6 +26,7 @@ void PIDBase::dump_config() {
     this->autotuner_->dump_config();
   }
 }
+
 void PIDBase::write_output_(float value) {
   this->output_value_ = value;
 
@@ -142,11 +91,11 @@ void PIDBase::update_pid_() {
   this->write_output_(value);
   // }
 
-  if (this->do_publish_)
-    this->publish_state();
+  // if (this->do_publish_)
+  //   this->publish_state();
 }
 
-void PIDBase::publish_state() { ESP_LOGD(TAG, "'%s' - Sending state:", this->current_value_); }
+// void PIDBase::publish_state() { ESP_LOGD(TAG, "'%s' - Sending state:", this->current_value_); }
 
 void PIDBase::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune) {
   this->autotuner_ = std::move(autotune);

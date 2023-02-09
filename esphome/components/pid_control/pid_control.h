@@ -5,9 +5,11 @@
 namespace esphome {
 namespace pid_control {
 
-class PID : public pid_shared::PIDBase {
+class PIDControl : public pid_shared::PIDBase {
  public:
-  PID() = default;
+  // PIDControl() = default;
+  // ~PIDControl() {}
+  void setup();
 };
 
 }  // namespace pid_control
