@@ -4,8 +4,26 @@
 #include "esphome/core/helpers.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
-
 #include <vector>
+
+/*
+# may not be needed if pid_shared is already in scope
+esphome:
+  includes:
+    - esphome/esphome/components/pid_shared/pid_simulator.h
+
+# setup a new output
+output:
+  - platform: custom
+    lambda: |-
+      auto sim = new pid_shared::PIDSimulator();
+      App.register_component(sim);
+      return {sim};
+
+    type: float
+    outputs:
+      id: pid_simulator
+*/
 
 namespace esphome {
 namespace pid_shared {

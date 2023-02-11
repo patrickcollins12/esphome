@@ -3,29 +3,36 @@ import esphome.config_validation as cv
 from esphome import automation
 
 # from esphome.components import mqtt
-from esphome.components import sensor, output
+from esphome.components import sensor, output, switch
 from esphome.const import CONF_ID, CONF_SENSOR
+
+# from esphome.const import
 
 CODEOWNERS = ["@patrickcollins12"]
 AUTO_LOAD = ["pid_shared"]
 
-pid_ns = cg.esphome_ns.namespace("pid_control")
-PIDControl = pid_ns.class_("PIDControl", cg.Component, cg.EntityBase)
+pidcontrol_ns = cg.esphome_ns.namespace("pid_control")
+PIDControl = pidcontrol_ns.class_("PIDControl", cg.Component, cg.EntityBase)
 
-PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
-PIDResetIntegralTermAction = pid_ns.class_(
+pid_shared_ns = cg.esphome_ns.namespace("pid_shared")
+# PIDBase = pid_shared_ns.class_("PIDBase", cg.Component, cg.EntityBase)
+
+PIDAutotuneAction = pid_shared_ns.class_("PIDAutotuneAction", automation.Action)
+PIDResetIntegralTermAction = pid_shared_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
 )
-PIDSetControlParametersAction = pid_ns.class_(
+
+PIDSetControlParametersAction = pid_shared_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
 
+CONF_ENABLE_SWITCH = "enable_switch"
 CONF_INCREASE_OUTPUT = "increase_output"
 CONF_DECREASE_OUTPUT = "decrease_output"
 # CONF_COOL_OUTPUT = "cool_output"
 # CONF_HEAT_OUTPUT = "heat_output"
 
-CONF_DEFAULT_TARGET = "default_target"
+CONF_TARGET_VALUE = "target_value"
 # CONF_DEFAULT_TARGET_TEMPERATURE = "default_target_temperature"
 
 CONF_KP = "kp"
@@ -53,13 +60,24 @@ CONF_KI_MULTIPLIER = "ki_multiplier"
 CONF_KD_MULTIPLIER = "kd_multiplier"
 
 MULTI_CONF = True
+
+# SWITCH_SCHEMA = switch.switch_schema(
+#     PIDControl,
+#     icon=ICON_POWER,
+#     entity_category=ENTITY_CATEGORY_CONFIG,
+#     block_inverted=True,
+# )
+# # .extend(cv.COMPONENT_SCHEMA)
+
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(PIDControl),
             # cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTPIDComponent),
             cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
-            cv.Required(CONF_DEFAULT_TARGET): cv.float_,
+            cv.Required(CONF_TARGET_VALUE): cv.float_,
+            cv.Optional(CONF_ENABLE_SWITCH): cv.use_id(switch.Switch),
             cv.Optional(CONF_INCREASE_OUTPUT): cv.use_id(output.FloatOutput),
             cv.Optional(CONF_DECREASE_OUTPUT): cv.use_id(output.FloatOutput),
             cv.Optional(CONF_DEADBAND_PARAMETERS): cv.Schema(
@@ -90,6 +108,7 @@ CONFIG_SCHEMA = (
     )
     .extend(cv.COMPONENT_SCHEMA)
     .extend(cv.ENTITY_BASE_SCHEMA)
+    # .extend(SWITCH_SCHEMA)
 )
 
 
@@ -114,6 +133,10 @@ async def to_code(config):
     if CONF_INCREASE_OUTPUT in config:
         out = await cg.get_variable(config[CONF_INCREASE_OUTPUT])
         cg.add(var.set_increase_output(out))
+    if CONF_ENABLE_SWITCH in config:
+        out = await cg.get_variable(config[CONF_ENABLE_SWITCH])
+        cg.add(var.set_enable_switch(out))
+
     params = config[CONF_CONTROL_PARAMETERS]
     cg.add(var.set_kp(params[CONF_KP]))
     cg.add(var.set_ki(params[CONF_KI]))
@@ -141,7 +164,7 @@ async def to_code(config):
             )
         )
 
-    cg.add(var.set_default_target_value(config[CONF_DEFAULT_TARGET]))
+    cg.add(var.set_target_value(config[CONF_TARGET_VALUE]))
 
 
 @automation.register_action(

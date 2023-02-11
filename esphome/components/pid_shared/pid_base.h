@@ -16,7 +16,7 @@ class PIDBase : public Component, public EntityBase {
  public:
   PIDBase() = default;
   virtual ~PIDBase() {}
-  void setup() {} // to be defined in the derived class but needs to be here
+  void setup() {}  // to be defined in the derived class but needs to be here
   void dump_config();
 
   // void publish_state();
@@ -24,6 +24,7 @@ class PIDBase : public Component, public EntityBase {
   void set_sensor(sensor::Sensor *sensor) { sensor_ = sensor; }
   void set_decrease_output(output::FloatOutput *decrease_output) { decrease_output_ = decrease_output; }
   void set_increase_output(output::FloatOutput *increase_output) { increase_output_ = increase_output; }
+
   void set_kp(float kp) { controller_.kp_ = kp; }
   void set_ki(float ki) { controller_.ki_ = ki; }
   void set_kd(float kd) { controller_.kd_ = kd; }
@@ -67,7 +68,7 @@ class PIDBase : public Component, public EntityBase {
   void add_on_pid_computed_callback(std::function<void()> &&callback) {
     pid_computed_callback_.add(std::move(callback));
   }
-  void set_default_target_value(float default_target_value) { default_target_value_ = default_target_value; }
+  void set_target_value(float target_value) { target_value_ = target_value; }
   void start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotune);
   void reset_integral_term();
 
@@ -88,7 +89,7 @@ class PIDBase : public Component, public EntityBase {
   /// Output value as reported by the PID controller, for PIDSensor
   float output_value_;
   CallbackManager<void()> pid_computed_callback_;
-  float default_target_value_;
+  // float default_target_value_;
   float target_value_;
   float current_value_;
   std::unique_ptr<pid_shared::PIDAutotuner> autotuner_;

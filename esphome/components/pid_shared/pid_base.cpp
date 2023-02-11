@@ -4,7 +4,7 @@
 namespace esphome {
 namespace pid_shared {
 
-static const char *const TAG = "pid";
+static const char *const TAG = "pid_base";
 
 void PIDBase::dump_config() {
   // TODO
@@ -123,7 +123,10 @@ void PIDBase::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&autotun
   // }
 }
 
-void PIDBase::reset_integral_term() { this->controller_.reset_accumulated_integral(); }
+void PIDBase::reset_integral_term() {
+  ESP_LOGI(TAG, "Resetting integral to 0");
+  this->controller_.reset_accumulated_integral();
+}
 
 }  // namespace pid_shared
 }  // namespace esphome
