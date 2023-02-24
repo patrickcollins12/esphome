@@ -1,12 +1,12 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esphome/components/pid/pid_climate.h"
+#include "esphome/components/pid_shared/pid_base.h"
 
 namespace esphome {
-namespace pid {
+namespace pid_shared {
 
-enum PIDClimateSensorType {
+enum PIDSensorType {
   PID_SENSOR_TYPE_RESULT,
   PID_SENSOR_TYPE_ERROR,
   PID_SENSOR_TYPE_PROPORTIONAL,
@@ -19,19 +19,19 @@ enum PIDClimateSensorType {
   PID_SENSOR_TYPE_KD,
 };
 
-class PIDClimateSensor : public sensor::Sensor, public Component {
+class PIDSensor : public sensor::Sensor, public Component {
  public:
   void setup() override;
-  void set_parent(PIDClimate *parent) { parent_ = parent; }
-  void set_type(PIDClimateSensorType type) { type_ = type; }
+  void set_parent(PIDBase *parent) { parent_ = parent; }
+  void set_type(PIDSensorType type) { type_ = type; }
 
   void dump_config() override;
 
  protected:
   void update_from_parent_();
-  PIDClimate *parent_;
-  PIDClimateSensorType type_;
+  PIDBase *parent_;
+  PIDSensorType type_;
 };
 
-}  // namespace pid
+}  // namespace pid_shared
 }  // namespace esphome

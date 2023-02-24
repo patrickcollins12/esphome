@@ -13,7 +13,7 @@ class PIDControl : public pid_shared::PIDBase {
   void set_enable_switch(switch_::Switch *enable_switch) { enable_switch_ = enable_switch; }
 
  protected:
-  bool is_switch_enabled();
+  bool is_pidcontrol_enabled();
 
   // bool enabled_ = true;
   switch_::Switch *enable_switch_;

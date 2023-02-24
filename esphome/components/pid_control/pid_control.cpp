@@ -11,7 +11,7 @@ void PIDControl::setup() {
 
   this->sensor_->add_on_state_callback([this](float state) {
     ESP_LOGI(TAG, "Call back from sensor");
-    if (is_switch_enabled()) {
+    if (is_pidcontrol_enabled()) {
       state = 30;
       // only publish if state/current value has changed in two digits of precision
       this->do_publish_ = roundf(state * 100) != roundf(this->current_value_ * 100);
@@ -19,6 +19,9 @@ void PIDControl::setup() {
       ESP_LOGI(TAG, "Updating PID %f %f", state, target_value_);
 
       this->update_pid_();
+    } else {
+      // set both outputs to zero.
+      // this->write_output_(0.0f);
     }
   });
   this->current_value_ = this->sensor_->state;
@@ -28,7 +31,7 @@ void PIDControl::setup() {
 // if no switch is configured, then it is permanently on
 // if a switch if configured, get it's state to determine
 // whether it is on of off
-bool PIDControl::is_switch_enabled() {
+bool PIDControl::is_pidcontrol_enabled() {
   if (this->enable_switch_ == nullptr) {
     return true;
   } else {

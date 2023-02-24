@@ -30,33 +30,24 @@ void PIDBase::dump_config() {
 void PIDBase::write_output_(float value) {
   this->output_value_ = value;
 
-  // // first ensure outputs are off (both outputs not active at the same time)
-  // if (this->supports_cool_() && value >= 0)
-  //   this->cool_output_->set_level(0.0f);
-  // if (this->supports_heat_() && value <= 0)
-  //   this->heat_output_->set_level(0.0f);
+  // first ensure outputs are off (both outputs not active at the same time)
+  if (this->decrease_output_ != nullptr && value >= 0)
+    this->decrease_output_->set_level(0.0f);
+  if (this->increase_output_ != nullptr && value <= 0)
+    this->increase_output_->set_level(0.0f);
 
-  // // value < 0 means cool, > 0 means heat
-  // if (this->supports_cool_() && value < 0)
-  //   this->cool_output_->set_level(std::min(1.0f, -value));
-  // if (this->supports_heat_() && value > 0)
-  //   this->heat_output_->set_level(std::min(1.0f, value));
+  // value < 0 means decrease, > 0 means increase
+  if (this->decrease_output_ != nullptr && value < 0) {
+    float val = std::min(1.0f, -value);
+    this->decrease_output_->set_level(val);
+    ESP_LOGI(TAG, "Setting decrease_output to %f (%f)", val, value);
+  }
 
-  // // Update action variable for user feedback what's happening
-  // climate::ClimateAction new_action;
-  // if (this->supports_cool_() && value < 0) {
-  //   new_action = climate::CLIMATE_ACTION_COOLING;
-  // } else if (this->supports_heat_() && value > 0) {
-  //   new_action = climate::CLIMATE_ACTION_HEATING;
-  // } else if (this->mode == climate::CLIMATE_MODE_OFF) {
-  //   new_action = climate::CLIMATE_ACTION_OFF;
-  // } else {
-  //   new_action = climate::CLIMATE_ACTION_IDLE;
-  // }
-  // if (new_action != this->action) {
-  //   this->action = new_action;
-  //   this->do_publish_ = true;
-  // }
+  if (this->increase_output_ != nullptr && value > 0) {
+    float val = std::min(1.0f, value);
+    this->increase_output_->set_level(val);
+    ESP_LOGI(TAG, "Setting increase_output to %f (%f)", val, value);
+  }
 
   this->pid_computed_callback_.call();
 }
@@ -69,7 +60,9 @@ void PIDBase::update_pid_() {
   } else {
     // Update PID controller irrespective of current mode, to not mess up D/I terms
     // In non-auto mode, we just discard the output value
+
     value = this->controller_.update(this->target_value_, this->current_value_);
+    ESP_LOGI(TAG, "In update_pid_(): %f %f -> %f", this->target_value_, this->current_value_, value);
 
     // Check autotuner
     if (this->autotuner_ != nullptr && !this->autotuner_->is_finished()) {
@@ -85,9 +78,6 @@ void PIDBase::update_pid_() {
     }
   }
 
-  // if (this->mode == climate::CLIMATE_MODE_OFF) {
-  //   this->write_output_(0.0);
-  // } else {
   this->write_output_(value);
   // }
 

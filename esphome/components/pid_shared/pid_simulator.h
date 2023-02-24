@@ -28,9 +28,16 @@ output:
 namespace esphome {
 namespace pid_shared {
 
+class PIDSimulatorSensor : public PollingComponent, public sensor::Sensor {
+ public:
+  PIDSimulatorSensor() : PollingComponent(10000){};
+  void setup() override {}
+  void update() override {}
+};
+
 class PIDSimulator : public PollingComponent, public output::FloatOutput {
  public:
-  PIDSimulator() : PollingComponent(1000) {}
+  PIDSimulator() : PollingComponent(5000) {}
 
   float surface = 1;                     /// surface area in m²
   float mass = 3;                        /// mass of simulated object in kg
@@ -44,7 +51,8 @@ class PIDSimulator : public PollingComponent, public output::FloatOutput {
   std::vector<float> delayed_temps;      /// storage of past temperatures for delaying temperature reading
   size_t delay_cycles = 15;              /// how many update cycles to delay the output
   float output_value = 0.0;              /// Current output value of heating element
-  sensor::Sensor *sensor = new sensor::Sensor();
+  // sensor::Sensor *sensor = new sensor::Sensor();
+  pid_shared::PIDSimulatorSensor *sensor = new pid_shared::PIDSimulatorSensor();
 
   float delta_t(float power) {
     // P = Q / t
@@ -57,7 +65,10 @@ class PIDSimulator : public PollingComponent, public output::FloatOutput {
     return (p * t) / (c * m);
   }
 
+  // #include "esphome/core/component.h"
+
   float update_temp() {
+    ESP_LOGI("pid.simulator", "Simulator output value: %f", output_value);
     float value = clamp(output_value, 0.0f, 1.0f);
 
     // Heat
@@ -81,14 +92,23 @@ class PIDSimulator : public PollingComponent, public output::FloatOutput {
     return ret;
   }
 
-  void setup() override { sensor->publish_state(this->temperature); }
+  void setup() override {
+    sensor->setup();
+    sensor->publish_state(this->temperature);
+  }
+
   void update() override {
     float new_temp = this->update_temp();
+    ESP_LOGI("pid_shared", "publish state %f", new_temp);
+
     sensor->publish_state(new_temp);
   }
 
  protected:
-  void write_state(float state) override { this->output_value = state; }
+  void write_state(float state) override {
+    this->output_value = state;
+    ESP_LOGI("pid_shared", "output state %f", state);
+  }
 };
 
 }  // namespace pid_shared
