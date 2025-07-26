@@ -1,40 +1,27 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation
-
-# from esphome.components import mqtt
-from esphome.components import sensor, output, switch
+import esphome.codegen as cg
+from esphome.components import output, sensor, switch
+import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_SENSOR
-
-# from esphome.const import
 
 CODEOWNERS = ["@patrickcollins12"]
 AUTO_LOAD = ["pid_shared"]
 
 pidcontrol_ns = cg.esphome_ns.namespace("pid_control")
-PIDControl = pidcontrol_ns.class_("PIDControl", cg.Component, cg.EntityBase)
+PIDControl = pidcontrol_ns.class_("PIDControl", cg.Component)
 
-pid_shared_ns = cg.esphome_ns.namespace("pid_shared")
-# PIDBase = pid_shared_ns.class_("PIDBase", cg.Component, cg.EntityBase)
-
-PIDAutotuneAction = pid_shared_ns.class_("PIDAutotuneAction", automation.Action)
-PIDResetIntegralTermAction = pid_shared_ns.class_(
+PIDAutotuneAction = pidcontrol_ns.class_("PIDAutotuneAction", automation.Action)
+PIDResetIntegralTermAction = pidcontrol_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
 )
-
-PIDSetControlParametersAction = pid_shared_ns.class_(
+PIDSetControlParametersAction = pidcontrol_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
 
 CONF_ENABLE_SWITCH = "enable_switch"
 CONF_INCREASE_OUTPUT = "increase_output"
 CONF_DECREASE_OUTPUT = "decrease_output"
-# CONF_COOL_OUTPUT = "cool_output"
-# CONF_HEAT_OUTPUT = "heat_output"
-
 CONF_TARGET_VALUE = "target_value"
-# CONF_DEFAULT_TARGET_TEMPERATURE = "default_target_temperature"
-
 CONF_KP = "kp"
 CONF_KI = "ki"
 CONF_KD = "kd"
@@ -44,13 +31,9 @@ CONF_MIN_INTEGRAL = "min_integral"
 CONF_MAX_INTEGRAL = "max_integral"
 CONF_OUTPUT_AVERAGING_SAMPLES = "output_averaging_samples"
 CONF_DERIVATIVE_AVERAGING_SAMPLES = "derivative_averaging_samples"
-
-# For autotuner
 CONF_NOISEBAND = "noiseband"
 CONF_POSITIVE_OUTPUT = "positive_output"
 CONF_NEGATIVE_OUTPUT = "negative_output"
-
-# Deadband parameters
 CONF_DEADBAND_PARAMETERS = "deadband_parameters"
 CONF_THRESHOLD_HIGH = "threshold_high"
 CONF_THRESHOLD_LOW = "threshold_low"
@@ -59,112 +42,88 @@ CONF_KP_MULTIPLIER = "kp_multiplier"
 CONF_KI_MULTIPLIER = "ki_multiplier"
 CONF_KD_MULTIPLIER = "kd_multiplier"
 
-MULTI_CONF = True
+PID_CONTROL_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(PIDControl),
+        cv.Optional("name"): cv.string,
+        cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
+        cv.Required(CONF_TARGET_VALUE): cv.float_,
+        cv.Optional(CONF_ENABLE_SWITCH): cv.use_id(switch.Switch),
+        cv.Optional(CONF_INCREASE_OUTPUT): cv.use_id(output.FloatOutput),
+        cv.Optional(CONF_DECREASE_OUTPUT): cv.use_id(output.FloatOutput),
+        cv.Optional(CONF_DEADBAND_PARAMETERS): cv.Schema(
+            {
+                cv.Required(CONF_THRESHOLD_HIGH): cv.float_,
+                cv.Required(CONF_THRESHOLD_LOW): cv.float_,
+                cv.Optional(CONF_KP_MULTIPLIER, default=0.1): cv.float_,
+                cv.Optional(CONF_KI_MULTIPLIER, default=0.0): cv.float_,
+                cv.Optional(CONF_KD_MULTIPLIER, default=0.0): cv.float_,
+                cv.Optional(CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES, default=1): cv.int_,
+            }
+        ),
+        cv.Required(CONF_CONTROL_PARAMETERS): cv.Schema(
+            {
+                cv.Required(CONF_KP): cv.float_,
+                cv.Optional(CONF_KI, default=0.0): cv.float_,
+                cv.Optional(CONF_KD, default=0.0): cv.float_,
+                cv.Optional(CONF_STARTING_INTEGRAL_TERM, default=0.0): cv.float_,
+                cv.Optional(CONF_MIN_INTEGRAL, default=-1): cv.float_,
+                cv.Optional(CONF_MAX_INTEGRAL, default=1): cv.float_,
+                cv.Optional(CONF_DERIVATIVE_AVERAGING_SAMPLES, default=1): cv.int_,
+                cv.Optional(CONF_OUTPUT_AVERAGING_SAMPLES, default=1): cv.int_,
+            }
+        ),
+    }
+).extend(cv.COMPONENT_SCHEMA)
 
-# SWITCH_SCHEMA = switch.switch_schema(
-#     PIDControl,
-#     icon=ICON_POWER,
-#     entity_category=ENTITY_CATEGORY_CONFIG,
-#     block_inverted=True,
-# )
-# # .extend(cv.COMPONENT_SCHEMA)
-
-
-CONFIG_SCHEMA = (
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(PIDControl),
-            # cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTPIDComponent),
-            cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
-            cv.Required(CONF_TARGET_VALUE): cv.float_,
-            cv.Optional(CONF_ENABLE_SWITCH): cv.use_id(switch.Switch),
-            cv.Optional(CONF_INCREASE_OUTPUT): cv.use_id(output.FloatOutput),
-            cv.Optional(CONF_DECREASE_OUTPUT): cv.use_id(output.FloatOutput),
-            cv.Optional(CONF_DEADBAND_PARAMETERS): cv.Schema(
-                {
-                    cv.Required(CONF_THRESHOLD_HIGH): cv.float_,
-                    cv.Required(CONF_THRESHOLD_LOW): cv.float_,
-                    cv.Optional(CONF_KP_MULTIPLIER, default=0.1): cv.float_,
-                    cv.Optional(CONF_KI_MULTIPLIER, default=0.0): cv.float_,
-                    cv.Optional(CONF_KD_MULTIPLIER, default=0.0): cv.float_,
-                    cv.Optional(
-                        CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES, default=1
-                    ): cv.int_,
-                }
-            ),
-            cv.Required(CONF_CONTROL_PARAMETERS): cv.Schema(
-                {
-                    cv.Required(CONF_KP): cv.float_,
-                    cv.Optional(CONF_KI, default=0.0): cv.float_,
-                    cv.Optional(CONF_KD, default=0.0): cv.float_,
-                    cv.Optional(CONF_STARTING_INTEGRAL_TERM, default=0.0): cv.float_,
-                    cv.Optional(CONF_MIN_INTEGRAL, default=-1): cv.float_,
-                    cv.Optional(CONF_MAX_INTEGRAL, default=1): cv.float_,
-                    cv.Optional(CONF_DERIVATIVE_AVERAGING_SAMPLES, default=1): cv.int_,
-                    cv.Optional(CONF_OUTPUT_AVERAGING_SAMPLES, default=1): cv.int_,
-                }
-            ),
-        }
-    )
-    .extend(cv.COMPONENT_SCHEMA)
-    .extend(cv.ENTITY_BASE_SCHEMA)
-    # .extend(SWITCH_SCHEMA)
-)
-
-
-# CONFIG_SCHEMA = cv.All(
-#     cv.ensure_list(PID_SCHEMA),
-#     cv.has_at_least_one_key(CONF_INCREASE_OUTPUT, CONF_DECREASE_OUTPUT),
-# )
+CONFIG_SCHEMA = cv.All(cv.ensure_list(PID_CONTROL_SCHEMA))
 
 
 async def to_code(config):
+    for conf in config:
+        var = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(var, conf)
 
-    var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
-    # await climate.register_climate(var, config)
+        if "name" in conf:
+            cg.add(var.set_name(conf["name"]))
 
-    sens = await cg.get_variable(config[CONF_SENSOR])
-    cg.add(var.set_sensor(sens))
+        sens = await cg.get_variable(conf[CONF_SENSOR])
+        cg.add(var.set_sensor(sens))
 
-    if CONF_DECREASE_OUTPUT in config:
-        out = await cg.get_variable(config[CONF_DECREASE_OUTPUT])
-        cg.add(var.set_decrease_output(out))
-    if CONF_INCREASE_OUTPUT in config:
-        out = await cg.get_variable(config[CONF_INCREASE_OUTPUT])
-        cg.add(var.set_increase_output(out))
-    if CONF_ENABLE_SWITCH in config:
-        out = await cg.get_variable(config[CONF_ENABLE_SWITCH])
-        cg.add(var.set_enable_switch(out))
+        if CONF_DECREASE_OUTPUT in conf:
+            out = await cg.get_variable(conf[CONF_DECREASE_OUTPUT])
+            cg.add(var.set_decrease_output(out))
+        if CONF_INCREASE_OUTPUT in conf:
+            out = await cg.get_variable(conf[CONF_INCREASE_OUTPUT])
+            cg.add(var.set_increase_output(out))
+        if CONF_ENABLE_SWITCH in conf:
+            s = await cg.get_variable(conf[CONF_ENABLE_SWITCH])
+            cg.add(var.set_enable_switch(s))
 
-    params = config[CONF_CONTROL_PARAMETERS]
-    cg.add(var.set_kp(params[CONF_KP]))
-    cg.add(var.set_ki(params[CONF_KI]))
-    cg.add(var.set_kd(params[CONF_KD]))
-    cg.add(var.set_starting_integral_term(params[CONF_STARTING_INTEGRAL_TERM]))
-    cg.add(var.set_derivative_samples(params[CONF_DERIVATIVE_AVERAGING_SAMPLES]))
-
-    cg.add(var.set_output_samples(params[CONF_OUTPUT_AVERAGING_SAMPLES]))
-
-    if CONF_MIN_INTEGRAL in params:
+        params = conf[CONF_CONTROL_PARAMETERS]
+        cg.add(var.set_kp(params[CONF_KP]))
+        cg.add(var.set_ki(params[CONF_KI]))
+        cg.add(var.set_kd(params[CONF_KD]))
+        cg.add(var.set_starting_integral_term(params[CONF_STARTING_INTEGRAL_TERM]))
+        cg.add(var.set_derivative_samples(params[CONF_DERIVATIVE_AVERAGING_SAMPLES]))
+        cg.add(var.set_output_samples(params[CONF_OUTPUT_AVERAGING_SAMPLES]))
         cg.add(var.set_min_integral(params[CONF_MIN_INTEGRAL]))
-    if CONF_MAX_INTEGRAL in params:
         cg.add(var.set_max_integral(params[CONF_MAX_INTEGRAL]))
 
-    if CONF_DEADBAND_PARAMETERS in config:
-        params = config[CONF_DEADBAND_PARAMETERS]
-        cg.add(var.set_threshold_low(params[CONF_THRESHOLD_LOW]))
-        cg.add(var.set_threshold_high(params[CONF_THRESHOLD_HIGH]))
-        cg.add(var.set_kp_multiplier(params[CONF_KP_MULTIPLIER]))
-        cg.add(var.set_ki_multiplier(params[CONF_KI_MULTIPLIER]))
-        cg.add(var.set_kd_multiplier(params[CONF_KD_MULTIPLIER]))
-        cg.add(
-            var.set_deadband_output_samples(
-                params[CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES]
+        if CONF_DEADBAND_PARAMETERS in conf:
+            params = conf[CONF_DEADBAND_PARAMETERS]
+            cg.add(var.set_threshold_low(params[CONF_THRESHOLD_LOW]))
+            cg.add(var.set_threshold_high(params[CONF_THRESHOLD_HIGH]))
+            cg.add(var.set_kp_multiplier(params[CONF_KP_MULTIPLIER]))
+            cg.add(var.set_ki_multiplier(params[CONF_KI_MULTIPLIER]))
+            cg.add(var.set_kd_multiplier(params[CONF_KD_MULTIPLIER]))
+            cg.add(
+                var.set_deadband_output_samples(
+                    params[CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES]
+                )
             )
-        )
 
-    cg.add(var.set_target_value(config[CONF_TARGET_VALUE]))
+        cg.add(var.set_target_value(conf[CONF_TARGET_VALUE]))
 
 
 @automation.register_action(

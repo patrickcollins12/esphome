@@ -4,42 +4,36 @@
 namespace esphome {
 namespace pid_control {
 
-static const char *const TAG = "pid_control";
+static const char *const TAG = "pid.control";
 
 void PIDControl::setup() {
-  ESP_LOGI(TAG, "Setting up pid_control");
-
   this->sensor_->add_on_state_callback([this](float state) {
-    ESP_LOGI(TAG, "Call back from sensor");
-    if (is_pidcontrol_enabled()) {
-      state = 30;
-      // only publish if state/current value has changed in two digits of precision
-      this->do_publish_ = roundf(state * 100) != roundf(this->current_value_ * 100);
-      this->current_value_ = state;
-      ESP_LOGI(TAG, "Updating PID %f %f", state, target_value_);
-
-      this->update_pid_();
+    if (this->is_pid_enabled_()) {
+      this->update_pid_(state);
     } else {
-      // set both outputs to zero.
-      // this->write_output_(0.0f);
+      this->write_output_(0.0f);
     }
   });
-  this->current_value_ = this->sensor_->state;
-  // this->target_value_ = this->default_target_value_;
 }
 
-// if no switch is configured, then it is permanently on
-// if a switch if configured, get it's state to determine
-// whether it is on of off
-bool PIDControl::is_pidcontrol_enabled() {
+void PIDControl::loop() {
+  // The PID logic is handled in the sensor callback
+}
+
+bool PIDControl::is_pid_enabled_() {
   if (this->enable_switch_ == nullptr) {
     return true;
-  } else {
-    if (this->enable_switch_->state == true) {
-      return true;
-    }
   }
-  return false;
+  return this->enable_switch_->state;
+}
+
+void PIDControl::write_output_(float value) {
+  if (this->increase_output_ != nullptr) {
+    this->increase_output_->set_level(value > 0.0f ? value : 0.0f);
+  }
+  if (this->decrease_output_ != nullptr) {
+    this->decrease_output_->set_level(value < 0.0f ? -value : 0.0f);
+  }
 }
 
 }  // namespace pid_control
