@@ -9,6 +9,10 @@
 namespace esphome {
 namespace pid_control {
 
+// This is the implementation of a generic, non-climate PID controller.
+// It inherits from the shared PIDBase and is designed to control any sensor/output
+// combination. It works by taking a sensor input and controlling two separate outputs:
+// one for increasing the value (e.g., heating) and one for decreasing it (e.g., cooling).
 class PIDControl : public pid_shared::PIDBase, public Component {
  public:
   void setup() override;
@@ -25,6 +29,7 @@ class PIDControl : public pid_shared::PIDBase, public Component {
   bool is_pid_enabled_();
   void write_output_(float value) override;
 
+  // Pointers to the sensor and outputs this PID controller will manage.
   std::string name_;
   sensor::Sensor *sensor_;
   output::FloatOutput *increase_output_{nullptr};

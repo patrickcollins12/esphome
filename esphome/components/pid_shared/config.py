@@ -60,3 +60,33 @@ def pid_deadband_schema():
             cv.Optional(CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES, default=1): cv.int_,
         }
     )
+
+
+def add_pid_to_code(var, conf):
+    """
+    Set the PID parameters from the config.
+    This is a helper function to avoid code duplication in the to_code functions
+    of the pid and pid_control components.
+    """
+    params = conf[CONF_CONTROL_PARAMETERS]
+    cg.add(var.set_kp(params[CONF_KP]))
+    cg.add(var.set_ki(params[CONF_KI]))
+    cg.add(var.set_kd(params[CONF_KD]))
+    cg.add(var.set_starting_integral_term(params[CONF_STARTING_INTEGRAL_TERM]))
+    cg.add(var.set_derivative_samples(params[CONF_DERIVATIVE_AVERAGING_SAMPLES]))
+    cg.add(var.set_output_samples(params[CONF_OUTPUT_AVERAGING_SAMPLES]))
+    cg.add(var.set_min_integral(params[CONF_MIN_INTEGRAL]))
+    cg.add(var.set_max_integral(params[CONF_MAX_INTEGRAL]))
+
+    if CONF_DEADBAND_PARAMETERS in conf:
+        params = conf[CONF_DEADBAND_PARAMETERS]
+        cg.add(var.set_threshold_low(params[CONF_THRESHOLD_LOW]))
+        cg.add(var.set_threshold_high(params[CONF_THRESHOLD_HIGH]))
+        cg.add(var.set_kp_multiplier(params[CONF_KP_MULTIPLIER]))
+        cg.add(var.set_ki_multiplier(params[CONF_KI_MULTIPLIER]))
+        cg.add(var.set_kd_multiplier(params[CONF_KD_MULTIPLIER]))
+        cg.add(
+            var.set_deadband_output_samples(
+                params[CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES]
+            )
+        )

@@ -7,6 +7,11 @@
 namespace esphome {
 namespace pid_shared {
 
+// This is the base class for all PID controllers in ESPHome.
+// It encapsulates the core PID logic (controller and autotuner) and provides a common
+// interface for setting control parameters and managing the PID loop.
+// It is not intended to be used directly in YAML, but rather to be inherited by
+// specific PID implementations like `pid::PIDClimate` or `pid_control::PIDControl`.
 class PIDBase {
  public:
   void set_kp(float kp) { controller_.kp_ = kp; }
@@ -29,6 +34,10 @@ class PIDBase {
 
  protected:
   void update_pid_(float state);
+
+  // This pure virtual function must be implemented by derived classes.
+  // It is responsible for taking the calculated PID output value and applying it
+  // to the appropriate hardware (e.g., a climate output, a fan, etc.).
   virtual void write_output_(float value) = 0;
 
   float target_value_;

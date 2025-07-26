@@ -72,37 +72,7 @@ async def to_code(config):
             s = await cg.get_variable(conf[CONF_ENABLE_SWITCH])
             cg.add(var.set_enable_switch(s))
 
-        params = conf[pid_config.CONF_CONTROL_PARAMETERS]
-        cg.add(var.set_kp(params[pid_config.CONF_KP]))
-        cg.add(var.set_ki(params[pid_config.CONF_KI]))
-        cg.add(var.set_kd(params[pid_config.CONF_KD]))
-        cg.add(
-            var.set_starting_integral_term(
-                params[pid_config.CONF_STARTING_INTEGRAL_TERM]
-            )
-        )
-        cg.add(
-            var.set_derivative_samples(
-                params[pid_config.CONF_DERIVATIVE_AVERAGING_SAMPLES]
-            )
-        )
-        cg.add(var.set_output_samples(params[pid_config.CONF_OUTPUT_AVERAGING_SAMPLES]))
-        cg.add(var.set_min_integral(params[pid_config.CONF_MIN_INTEGRAL]))
-        cg.add(var.set_max_integral(params[pid_config.CONF_MAX_INTEGRAL]))
-
-        if pid_config.CONF_DEADBAND_PARAMETERS in conf:
-            params = conf[pid_config.CONF_DEADBAND_PARAMETERS]
-            cg.add(var.set_threshold_low(params[pid_config.CONF_THRESHOLD_LOW]))
-            cg.add(var.set_threshold_high(params[pid_config.CONF_THRESHOLD_HIGH]))
-            cg.add(var.set_kp_multiplier(params[pid_config.CONF_KP_MULTIPLIER]))
-            cg.add(var.set_ki_multiplier(params[pid_config.CONF_KI_MULTIPLIER]))
-            cg.add(var.set_kd_multiplier(params[pid_config.CONF_KD_MULTIPLIER]))
-            cg.add(
-                var.set_deadband_output_samples(
-                    params[pid_config.CONF_DEADBAND_OUTPUT_AVERAGING_SAMPLES]
-                )
-            )
-
+        pid_config.add_pid_to_code(var, conf)
         cg.add(var.set_target_value(conf[CONF_TARGET_VALUE]))
 
 
