@@ -1,5 +1,6 @@
 #include "pid_climate.h"
 #include "esphome/core/log.h"
+#include <set>
 
 namespace esphome {
 namespace pid {
@@ -26,9 +27,20 @@ void PIDClimate::dump_config() {
 climate::ClimateTraits PIDClimate::traits() {
   auto traits = climate::ClimateTraits();
   traits.set_supports_current_temperature(true);
-  traits.set_supports_cool_mode(this->cool_output_ != nullptr);
-  traits.set_supports_heat_mode(this->heat_output_ != nullptr);
-  traits.set_supports_auto_mode(this->cool_output_ != nullptr && this->heat_output_ != nullptr);
+
+  std::set<climate::ClimateMode> modes;
+  modes.insert(climate::CLIMATE_MODE_OFF);
+  if (this->cool_output_ != nullptr) {
+    modes.insert(climate::CLIMATE_MODE_COOL);
+  }
+  if (this->heat_output_ != nullptr) {
+    modes.insert(climate::CLIMATE_MODE_HEAT);
+  }
+  if (this->cool_output_ != nullptr && this->heat_output_ != nullptr) {
+    modes.insert(climate::CLIMATE_MODE_AUTO);
+  }
+  traits.set_supported_modes(modes);
+
   traits.set_supports_two_point_target_temperature(false);
   return traits;
 }
