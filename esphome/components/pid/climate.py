@@ -6,11 +6,13 @@ from esphome.const import CONF_HUMIDITY_SENSOR, CONF_ID, CONF_SENSOR
 
 pid_ns = cg.esphome_ns.namespace("pid")
 PIDClimate = pid_ns.class_("PIDClimate", climate.Climate, cg.Component)
-PIDAutotuneAction = pid_ns.class_("PIDAutotuneAction", automation.Action)
-PIDResetIntegralTermAction = pid_ns.class_(
+
+pid_shared_ns = cg.esphome_ns.namespace("pid_shared")
+PIDAutotuneAction = pid_shared_ns.class_("PIDAutotuneAction", automation.Action)
+PIDResetIntegralTermAction = pid_shared_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
 )
-PIDSetControlParametersAction = pid_ns.class_(
+PIDSetControlParametersAction = pid_shared_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
 

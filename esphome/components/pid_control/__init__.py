@@ -10,11 +10,12 @@ AUTO_LOAD = ["pid_shared"]
 pidcontrol_ns = cg.esphome_ns.namespace("pid_control")
 PIDControl = pidcontrol_ns.class_("PIDControl", cg.Component)
 
-PIDAutotuneAction = pidcontrol_ns.class_("PIDAutotuneAction", automation.Action)
-PIDResetIntegralTermAction = pidcontrol_ns.class_(
+pid_shared_ns = cg.esphome_ns.namespace("pid_shared")
+PIDAutotuneAction = pid_shared_ns.class_("PIDAutotuneAction", automation.Action)
+PIDResetIntegralTermAction = pid_shared_ns.class_(
     "PIDResetIntegralTermAction", automation.Action
 )
-PIDSetControlParametersAction = pidcontrol_ns.class_(
+PIDSetControlParametersAction = pid_shared_ns.class_(
     "PIDSetControlParametersAction", automation.Action
 )
 
