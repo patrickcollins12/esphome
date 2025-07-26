@@ -2,9 +2,9 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/entity_base.h"
-#include "esphome/core/preferences.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/preferences.h"
 #include <set>
 
 namespace esphome {
@@ -103,7 +103,6 @@ class LockCall {
 class Lock : public EntityBase {
  public:
   explicit Lock();
-  explicit Lock(const std::string &name);
 
   /** Make a lock device control call, this is used to control the lock device, see the LockCall description
    * for more info.

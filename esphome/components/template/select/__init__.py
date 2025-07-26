@@ -1,22 +1,22 @@
 from esphome import automation
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import select
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_ID,
     CONF_INITIAL_OPTION,
     CONF_LAMBDA,
-    CONF_OPTIONS,
     CONF_OPTIMISTIC,
+    CONF_OPTIONS,
     CONF_RESTORE_VALUE,
+    CONF_SET_ACTION,
 )
+
 from .. import template_ns
 
 TemplateSelect = template_ns.class_(
     "TemplateSelect", select.Select, cg.PollingComponent
 )
-
-CONF_SET_ACTION = "set_action"
 
 
 def validate(config):
@@ -43,9 +43,9 @@ def validate(config):
 
 
 CONFIG_SCHEMA = cv.All(
-    select.SELECT_SCHEMA.extend(
+    select.select_schema(TemplateSelect)
+    .extend(
         {
-            cv.GenerateID(): cv.declare_id(TemplateSelect),
             cv.Required(CONF_OPTIONS): cv.All(
                 cv.ensure_list(cv.string_strict), cv.Length(min=1)
             ),
@@ -55,7 +55,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_INITIAL_OPTION): cv.string_strict,
             cv.Optional(CONF_RESTORE_VALUE): cv.boolean,
         }
-    ).extend(cv.polling_component_schema("60s")),
+    )
+    .extend(cv.polling_component_schema("60s")),
     validate,
 )
 

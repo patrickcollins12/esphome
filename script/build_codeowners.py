@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-from pathlib import Path
-import sys
 import argparse
 from collections import defaultdict
+from pathlib import Path
+import sys
 
-from esphome.helpers import write_file_if_changed
 from esphome.config import get_component, get_platform
+from esphome.const import KEY_CORE, KEY_TARGET_FRAMEWORK, KEY_TARGET_PLATFORM
 from esphome.core import CORE
+from esphome.helpers import write_file_if_changed
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -27,9 +28,10 @@ BASE = """
 # the integration's code owner is automatically notified.
 
 # Core Code
-setup.py @esphome/core
+pyproject.toml @esphome/core
 esphome/*.py @esphome/core
 esphome/core/* @esphome/core
+.github/** @esphome/core
 
 # Integrations
 """.strip()
@@ -38,6 +40,7 @@ parts = [BASE]
 
 # Fake some directory so that get_component works
 CORE.config_path = str(root)
+CORE.data[KEY_CORE] = {KEY_TARGET_FRAMEWORK: None, KEY_TARGET_PLATFORM: None}
 
 codeowners = defaultdict(list)
 

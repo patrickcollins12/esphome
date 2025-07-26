@@ -1,22 +1,22 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import i2c, sensor
+import esphome.config_validation as cv
 from esphome.const import (
-    CONF_ID,
     CONF_BUS_VOLTAGE,
     CONF_CURRENT,
+    CONF_ID,
     CONF_POWER,
-    DEVICE_CLASS_VOLTAGE,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_POWER,
+    DEVICE_CLASS_VOLTAGE,
     STATE_CLASS_MEASUREMENT,
-    UNIT_VOLT,
     UNIT_AMPERE,
+    UNIT_VOLT,
     UNIT_WATT,
 )
 
 DEPENDENCIES = ["i2c"]
-CODEOWNERS = ["@MrEditor97"]
+CODEOWNERS = ["@mreditor97"]
 
 ina260_ns = cg.esphome_ns.namespace("ina260")
 INA260Component = ina260_ns.class_(

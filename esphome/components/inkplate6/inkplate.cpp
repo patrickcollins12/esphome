@@ -1,11 +1,9 @@
 #include "inkplate.h"
-#include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-
-#include <esp32-hal-gpio.h>
+#include <hal/gpio_hal.h>
 
 namespace esphome {
 namespace inkplate6 {
@@ -55,9 +53,12 @@ void Inkplate6::setup() {
   this->wakeup_pin_->digital_write(false);
 }
 
+/**
+ * Allocate buffers. May be called after setup to re-initialise if e.g. greyscale is changed.
+ */
 void Inkplate6::initialize_() {
-  ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
-  ExternalRAMAllocator<uint32_t> allocator32(ExternalRAMAllocator<uint32_t>::ALLOW_FAILURE);
+  RAMAllocator<uint8_t> allocator;
+  RAMAllocator<uint32_t> allocator32;
   uint32_t buffer_size = this->get_buffer_length_();
   if (buffer_size == 0)
     return;
@@ -69,9 +70,9 @@ void Inkplate6::initialize_() {
   if (this->buffer_ != nullptr)
     allocator.deallocate(this->buffer_, buffer_size);
   if (this->glut_ != nullptr)
-    allocator32.deallocate(this->glut_, 256 * (this->model_ == INKPLATE_6_PLUS ? 9 : 8));
+    allocator32.deallocate(this->glut_, 256 * 9);
   if (this->glut2_ != nullptr)
-    allocator32.deallocate(this->glut2_, 256 * (this->model_ == INKPLATE_6_PLUS ? 9 : 8));
+    allocator32.deallocate(this->glut2_, 256 * 9);
 
   this->buffer_ = allocator.allocate(buffer_size);
   if (this->buffer_ == nullptr) {
@@ -80,7 +81,7 @@ void Inkplate6::initialize_() {
     return;
   }
   if (this->greyscale_) {
-    uint8_t glut_size = (this->model_ == INKPLATE_6_PLUS ? 9 : 8);
+    uint8_t glut_size = 9;
 
     this->glut_ = allocator32.allocate(256 * glut_size);
     if (this->glut_ == nullptr) {
@@ -95,12 +96,14 @@ void Inkplate6::initialize_() {
       return;
     }
 
+    const auto *const waveform3_bit = waveform3BitAll[this->model_];
+
     for (int i = 0; i < glut_size; i++) {
       for (uint32_t j = 0; j < 256; j++) {
-        uint8_t z = (waveform3Bit[j & 0x07][i] << 2) | (waveform3Bit[(j >> 4) & 0x07][i]);
+        uint8_t z = (waveform3_bit[j & 0x07][i] << 2) | (waveform3_bit[(j >> 4) & 0x07][i]);
         this->glut_[i * 256 + j] = ((z & 0b00000011) << 4) | (((z & 0b00001100) >> 2) << 18) |
                                    (((z & 0b00010000) >> 4) << 23) | (((z & 0b11100000) >> 5) << 25);
-        z = ((waveform3Bit[j & 0x07][i] << 2) | (waveform3Bit[(j >> 4) & 0x07][i])) << 4;
+        z = ((waveform3_bit[j & 0x07][i] << 2) | (waveform3_bit[(j >> 4) & 0x07][i])) << 4;
         this->glut2_[i * 256 + j] = ((z & 0b00000011) << 4) | (((z & 0b00001100) >> 2) << 18) |
                                     (((z & 0b00010000) >> 4) << 23) | (((z & 0b11100000) >> 5) << 25);
       }
@@ -151,6 +154,12 @@ void HOT Inkplate6::draw_absolute_pixel_internal(int x, int y, Color color) {
   if (x >= this->get_width_internal() || y >= this->get_height_internal() || x < 0 || y < 0)
     return;
 
+  if (this->mirror_y_)
+    y = this->get_height_internal() - y - 1;
+
+  if (this->mirror_x_)
+    x = this->get_width_internal() - x - 1;
+
   if (this->greyscale_) {
     int x1 = x / 2;
     int x_sub = x % 2;
@@ -175,9 +184,11 @@ void HOT Inkplate6::draw_absolute_pixel_internal(int x, int y, Color color) {
 
 void Inkplate6::dump_config() {
   LOG_DISPLAY("", "Inkplate", this);
-  ESP_LOGCONFIG(TAG, "  Greyscale: %s", YESNO(this->greyscale_));
-  ESP_LOGCONFIG(TAG, "  Partial Updating: %s", YESNO(this->partial_updating_));
-  ESP_LOGCONFIG(TAG, "  Full Update Every: %d", this->full_update_every_);
+  ESP_LOGCONFIG(TAG,
+                "  Greyscale: %s\n"
+                "  Partial Updating: %s\n"
+                "  Full Update Every: %d",
+                YESNO(this->greyscale_), YESNO(this->partial_updating_), this->full_update_every_);
   // Log pins
   LOG_PIN("  CKV Pin: ", this->ckv_pin_);
   LOG_PIN("  CL Pin: ", this->cl_pin_);
@@ -339,13 +350,16 @@ void Inkplate6::display1b_() {
     clean_fast_(1, 21);
     clean_fast_(2, 1);
     clean_fast_(0, 12);
+    clean_fast_(2, 1);
   }
 
   uint32_t clock = (1 << this->cl_pin_->get_pin());
   uint32_t data_mask = this->get_data_pin_mask_();
   ESP_LOGV(TAG, "Display1b start loops (%ums)", millis() - start_time);
 
-  for (int k = 0; k < 4; k++) {
+  int rep = (this->model_ == INKPLATE_6_V2) ? 5 : 4;
+
+  for (int k = 0; k < rep; k++) {
     buffer_ptr = &this->buffer_[this->get_buffer_length_() - 1];
     vscan_start_();
     for (int i = 0, im = this->get_height_internal(); i < im; i++) {
@@ -365,8 +379,11 @@ void Inkplate6::display1b_() {
         GPIO.out_w1ts = this->pin_lut_[data] | clock;
         GPIO.out_w1tc = data_mask | clock;
       }
-      GPIO.out_w1ts = clock;
-      GPIO.out_w1tc = data_mask | clock;
+      // New Inkplate6 panel doesn't need last clock
+      if (this->model_ != INKPLATE_6_V2) {
+        GPIO.out_w1ts = clock;
+        GPIO.out_w1tc = data_mask | clock;
+      }
       vscan_end_();
     }
     delayMicroseconds(230);
@@ -392,8 +409,11 @@ void Inkplate6::display1b_() {
       GPIO.out_w1ts = this->pin_lut_[data] | clock;
       GPIO.out_w1tc = data_mask | clock;
     }
-    GPIO.out_w1ts = clock;
-    GPIO.out_w1tc = data_mask | clock;
+    // New Inkplate6 panel doesn't need last clock
+    if (this->model_ != INKPLATE_6_V2) {
+      GPIO.out_w1ts = clock;
+      GPIO.out_w1tc = data_mask | clock;
+    }
     vscan_end_();
   }
   delayMicroseconds(230);
@@ -415,8 +435,11 @@ void Inkplate6::display1b_() {
         GPIO.out_w1ts = send | clock;
         GPIO.out_w1tc = data_mask | clock;
       }
-      GPIO.out_w1ts = send | clock;
-      GPIO.out_w1tc = data_mask | clock;
+      // New Inkplate6 panel doesn't need last clock
+      if (this->model_ != INKPLATE_6_V2) {
+        GPIO.out_w1ts = clock;
+        GPIO.out_w1tc = data_mask | clock;
+      }
       vscan_end_();
     }
     delayMicroseconds(230);
@@ -450,13 +473,14 @@ void Inkplate6::display3b_() {
     clean_fast_(1, 21);
     clean_fast_(2, 1);
     clean_fast_(0, 12);
+    clean_fast_(2, 1);
   }
 
   uint32_t clock = (1 << this->cl_pin_->get_pin());
   uint32_t data_mask = this->get_data_pin_mask_();
   uint32_t pos;
   uint32_t data;
-  uint8_t glut_size = this->model_ == INKPLATE_6_PLUS ? 9 : 8;
+  uint8_t glut_size = 9;
   for (int k = 0; k < glut_size; k++) {
     pos = this->get_buffer_length_();
     vscan_start_();
@@ -479,8 +503,11 @@ void Inkplate6::display3b_() {
         GPIO.out_w1ts = data | clock;
         GPIO.out_w1tc = data_mask | clock;
       }
-      GPIO.out_w1ts = clock;
-      GPIO.out_w1tc = data_mask | clock;
+      // New Inkplate6 panel doesn't need last clock
+      if (this->model_ != INKPLATE_6_V2) {
+        GPIO.out_w1ts = clock;
+        GPIO.out_w1tc = data_mask | clock;
+      }
       vscan_end_();
     }
     delayMicroseconds(230);
@@ -517,10 +544,12 @@ bool Inkplate6::partial_update_() {
   }
   ESP_LOGV(TAG, "Partial update buffer built after (%ums)", millis() - start_time);
 
+  int rep = (this->model_ == INKPLATE_6_V2) ? 6 : 5;
+
   eink_on_();
   uint32_t clock = (1 << this->cl_pin_->get_pin());
   uint32_t data_mask = this->get_data_pin_mask_();
-  for (int k = 0; k < 5; k++) {
+  for (int k = 0; k < rep; k++) {
     vscan_start_();
     const uint8_t *data_ptr = &this->partial_buffer_2_[(this->get_buffer_length_() * 2) - 1];
     for (int i = 0; i < this->get_height_internal(); i++) {
@@ -531,8 +560,11 @@ bool Inkplate6::partial_update_() {
         GPIO.out_w1ts = this->pin_lut_[data] | clock;
         GPIO.out_w1tc = data_mask | clock;
       }
-      GPIO.out_w1ts = clock;
-      GPIO.out_w1tc = data_mask | clock;
+      // New Inkplate6 panel doesn't need last clock
+      if (this->model_ != INKPLATE_6_V2) {
+        GPIO.out_w1ts = clock;
+        GPIO.out_w1tc = data_mask | clock;
+      }
       vscan_end_();
     }
     delayMicroseconds(230);
@@ -634,8 +666,11 @@ void Inkplate6::clean_fast_(uint8_t c, uint8_t rep) {
         GPIO.out_w1ts = clock;
         GPIO.out_w1tc = clock;
       }
-      GPIO.out_w1ts = send | clock;
-      GPIO.out_w1tc = clock;
+      // New Inkplate6 panel doesn't need last clock
+      if (this->model_ != INKPLATE_6_V2) {
+        GPIO.out_w1ts = send | clock;
+        GPIO.out_w1tc = clock;
+      }
       vscan_end_();
     }
     delayMicroseconds(230);
@@ -686,5 +721,3 @@ void Inkplate6::pins_as_outputs_() {
 
 }  // namespace inkplate6
 }  // namespace esphome
-
-#endif  // USE_ESP32_FRAMEWORK_ARDUINO

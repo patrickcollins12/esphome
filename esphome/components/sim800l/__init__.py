@@ -1,11 +1,8 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation
-from esphome.const import (
-    CONF_ID,
-    CONF_TRIGGER_ID,
-)
+import esphome.codegen as cg
 from esphome.components import uart
+import esphome.config_validation as cv
+from esphome.const import CONF_ID, CONF_MESSAGE, CONF_TRIGGER_ID
 
 DEPENDENCIES = ["uart"]
 CODEOWNERS = ["@glmnet"]
@@ -52,7 +49,6 @@ CONF_ON_INCOMING_CALL = "on_incoming_call"
 CONF_ON_CALL_CONNECTED = "on_call_connected"
 CONF_ON_CALL_DISCONNECTED = "on_call_disconnected"
 CONF_RECIPIENT = "recipient"
-CONF_MESSAGE = "message"
 CONF_USSD = "ussd"
 
 CONFIG_SCHEMA = cv.All(

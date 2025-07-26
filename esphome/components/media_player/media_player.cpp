@@ -15,6 +15,8 @@ const char *media_player_state_to_string(MediaPlayerState state) {
       return "PLAYING";
     case MEDIA_PLAYER_STATE_PAUSED:
       return "PAUSED";
+    case MEDIA_PLAYER_STATE_ANNOUNCING:
+      return "ANNOUNCING";
     case MEDIA_PLAYER_STATE_NONE:
     default:
       return "UNKNOWN";
@@ -35,6 +37,18 @@ const char *media_player_command_to_string(MediaPlayerCommand command) {
       return "UNMUTE";
     case MEDIA_PLAYER_COMMAND_TOGGLE:
       return "TOGGLE";
+    case MEDIA_PLAYER_COMMAND_VOLUME_UP:
+      return "VOLUME_UP";
+    case MEDIA_PLAYER_COMMAND_VOLUME_DOWN:
+      return "VOLUME_DOWN";
+    case MEDIA_PLAYER_COMMAND_ENQUEUE:
+      return "ENQUEUE";
+    case MEDIA_PLAYER_COMMAND_REPEAT_ONE:
+      return "REPEAT_ONE";
+    case MEDIA_PLAYER_COMMAND_REPEAT_OFF:
+      return "REPEAT_OFF";
+    case MEDIA_PLAYER_COMMAND_CLEAR_PLAYLIST:
+      return "CLEAR_PLAYLIST";
     default:
       return "UNKNOWN";
   }
@@ -42,7 +56,8 @@ const char *media_player_command_to_string(MediaPlayerCommand command) {
 
 void MediaPlayerCall::validate_() {
   if (this->media_url_.has_value()) {
-    if (this->command_.has_value()) {
+    if (this->command_.has_value() && this->command_.value() != MEDIA_PLAYER_COMMAND_ENQUEUE) {
+      // Don't remove an enqueue command
       ESP_LOGW(TAG, "MediaPlayerCall: Setting both command and media_url is not needed.");
       this->command_.reset();
     }
@@ -67,6 +82,9 @@ void MediaPlayerCall::perform() {
   }
   if (this->volume_.has_value()) {
     ESP_LOGD(TAG, "  Volume: %.2f", this->volume_.value());
+  }
+  if (this->announcement_.has_value()) {
+    ESP_LOGD(TAG, " Announcement: %s", this->announcement_.value() ? "yes" : "no");
   }
   this->parent_->control(*this);
 }
@@ -105,6 +123,11 @@ MediaPlayerCall &MediaPlayerCall::set_media_url(const std::string &media_url) {
 
 MediaPlayerCall &MediaPlayerCall::set_volume(float volume) {
   this->volume_ = volume;
+  return *this;
+}
+
+MediaPlayerCall &MediaPlayerCall::set_announcement(bool announce) {
+  this->announcement_ = announce;
   return *this;
 }
 

@@ -1,15 +1,9 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 
 # from esphome.components import climate, sensor
 from esphome.components import sensor
-
-from esphome.const import (
-    STATE_CLASS_MEASUREMENT,
-    UNIT_PERCENT,
-    ICON_GAUGE,
-    CONF_TYPE,
-)
+import esphome.config_validation as cv
+from esphome.const import CONF_TYPE, ICON_GAUGE, STATE_CLASS_MEASUREMENT, UNIT_PERCENT
 
 # AUTO_LOAD = ["pid_shared", "pid", "pid_control"]
 AUTO_LOAD = ["pid_control"]

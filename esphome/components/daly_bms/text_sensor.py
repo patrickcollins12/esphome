@@ -1,8 +1,9 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import text_sensor
+import esphome.config_validation as cv
 from esphome.const import CONF_STATUS
-from . import DalyBmsComponent, CONF_BMS_DALY_ID
+
+from . import CONF_BMS_DALY_ID, DalyBmsComponent
 
 ICON_CAR_BATTERY = "mdi:car-battery"
 
@@ -23,9 +24,8 @@ CONFIG_SCHEMA = cv.All(
 
 
 async def setup_conf(config, key, hub):
-    if key in config:
-        conf = config[key]
-        sens = await text_sensor.new_text_sensor(conf)
+    if sensor_config := config.get(key):
+        sens = await text_sensor.new_text_sensor(sensor_config)
         cg.add(getattr(hub, f"set_{key}_text_sensor")(sens))
 
 

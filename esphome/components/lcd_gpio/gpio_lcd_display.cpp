@@ -7,7 +7,6 @@ namespace lcd_gpio {
 static const char *const TAG = "lcd_gpio";
 
 void GPIOLCDDisplay::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up GPIO LCD Display...");
   this->rs_pin_->setup();  // OUTPUT
   this->rs_pin_->digital_write(false);
   if (this->rw_pin_ != nullptr) {
@@ -17,15 +16,17 @@ void GPIOLCDDisplay::setup() {
   this->enable_pin_->setup();  // OUTPUT
   this->enable_pin_->digital_write(false);
 
-  for (uint8_t i = 0; i < (uint8_t)(this->is_four_bit_mode() ? 4u : 8u); i++) {
+  for (uint8_t i = 0; i < (uint8_t) (this->is_four_bit_mode() ? 4u : 8u); i++) {
     this->data_pins_[i]->setup();  // OUTPUT
     this->data_pins_[i]->digital_write(false);
   }
   LCDDisplay::setup();
 }
 void GPIOLCDDisplay::dump_config() {
-  ESP_LOGCONFIG(TAG, "GPIO LCD Display:");
-  ESP_LOGCONFIG(TAG, "  Columns: %u, Rows: %u", this->columns_, this->rows_);
+  ESP_LOGCONFIG(TAG,
+                "GPIO LCD Display:\n"
+                "  Columns: %u, Rows: %u",
+                this->columns_, this->rows_);
   LOG_PIN("  RS Pin: ", this->rs_pin_);
   LOG_PIN("  RW Pin: ", this->rw_pin_);
   LOG_PIN("  Enable Pin: ", this->enable_pin_);

@@ -1,6 +1,7 @@
 #include "time_based_cover.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/application.h"
 
 namespace esphome {
 namespace time_based {
@@ -11,8 +12,10 @@ using namespace esphome::cover;
 
 void TimeBasedCover::dump_config() {
   LOG_COVER("", "Time Based Cover", this);
-  ESP_LOGCONFIG(TAG, "  Open Duration: %.1fs", this->open_duration_ / 1e3f);
-  ESP_LOGCONFIG(TAG, "  Close Duration: %.1fs", this->close_duration_ / 1e3f);
+  ESP_LOGCONFIG(TAG,
+                "  Open Duration: %.1fs\n"
+                "  Close Duration: %.1fs",
+                this->open_duration_ / 1e3f, this->close_duration_ / 1e3f);
 }
 void TimeBasedCover::setup() {
   auto restore = this->restore_state_();
@@ -26,7 +29,7 @@ void TimeBasedCover::loop() {
   if (this->current_operation == COVER_OPERATION_IDLE)
     return;
 
-  const uint32_t now = millis();
+  const uint32_t now = App.get_loop_component_start_time();
 
   // Recompute position every loop cycle
   this->recompute_position_();
@@ -51,6 +54,7 @@ void TimeBasedCover::loop() {
 float TimeBasedCover::get_setup_priority() const { return setup_priority::DATA; }
 CoverTraits TimeBasedCover::get_traits() {
   auto traits = CoverTraits();
+  traits.set_supports_stop(true);
   traits.set_supports_position(true);
   traits.set_supports_toggle(true);
   traits.set_is_assumed_state(this->assumed_state_);
@@ -79,6 +83,14 @@ void TimeBasedCover::control(const CoverCall &call) {
     auto pos = *call.get_position();
     if (pos == this->position) {
       // already at target
+      if (this->manual_control_ && (pos == COVER_OPEN || pos == COVER_CLOSED)) {
+        // for covers with manual control switch, we can't rely on the computed position, so if
+        // the command triggered again, we'll assume it's in the opposite direction anyway.
+        auto op = pos == COVER_CLOSED ? COVER_OPERATION_CLOSING : COVER_OPERATION_OPENING;
+        this->position = pos == COVER_CLOSED ? COVER_OPEN : COVER_CLOSED;
+        this->target_position_ = pos;
+        this->start_direction_(op);
+      }
       // for covers with built in end stop, we should send the command again
       if (this->has_built_in_endstop_ && (pos == COVER_OPEN || pos == COVER_CLOSED)) {
         auto op = pos == COVER_CLOSED ? COVER_OPERATION_CLOSING : COVER_OPERATION_OPENING;
@@ -87,6 +99,9 @@ void TimeBasedCover::control(const CoverCall &call) {
       }
     } else {
       auto op = pos < this->position ? COVER_OPERATION_CLOSING : COVER_OPERATION_OPENING;
+      if (this->manual_control_ && (pos == COVER_OPEN || pos == COVER_CLOSED)) {
+        this->position = pos == COVER_CLOSED ? COVER_OPEN : COVER_CLOSED;
+      }
       this->target_position_ = pos;
       this->start_direction_(op);
     }

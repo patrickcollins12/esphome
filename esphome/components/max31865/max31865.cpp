@@ -2,6 +2,7 @@
 
 #include "esphome/core/log.h"
 #include <cmath>
+#include <cinttypes>
 
 namespace esphome {
 namespace max31865 {
@@ -45,14 +46,15 @@ void MAX31865Sensor::update() {
     config = this->read_register_(CONFIGURATION_REG);
     fault_detect_time = micros() - start_time;
     if ((fault_detect_time >= 6000) && (config & 0b00001100)) {
-      ESP_LOGE(TAG, "Fault detection incomplete (0x%02X) after %uμs (datasheet spec is 600μs max)! Aborting read.",
+      ESP_LOGE(TAG,
+               "Fault detection incomplete (0x%02X) after %" PRIu32 "μs (datasheet spec is 600μs max)! Aborting read.",
                config, fault_detect_time);
       this->publish_state(NAN);
       this->status_set_error();
       return;
     }
   } while (config & 0b00001100);
-  ESP_LOGV(TAG, "Fault detection completed in %uμs.", fault_detect_time);
+  ESP_LOGV(TAG, "Fault detection completed in %" PRIu32 "μs.", fault_detect_time);
 
   // Start 1-shot conversion
   this->write_config_(0b11100000, 0b10100000);
@@ -63,7 +65,6 @@ void MAX31865Sensor::update() {
 }
 
 void MAX31865Sensor::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up MAX31865Sensor '%s'...", this->name_.c_str());
   this->spi_setup();
 
   // Build base configuration
@@ -81,9 +82,11 @@ void MAX31865Sensor::dump_config() {
   LOG_SENSOR("", "MAX31865", this);
   LOG_PIN("  CS Pin: ", this->cs_);
   LOG_UPDATE_INTERVAL(this);
-  ESP_LOGCONFIG(TAG, "  Reference Resistance: %.2fΩ", reference_resistance_);
-  ESP_LOGCONFIG(TAG, "  RTD: %u-wire %.2fΩ", rtd_wires_, rtd_nominal_resistance_);
-  ESP_LOGCONFIG(TAG, "  Mains Filter: %s",
+  ESP_LOGCONFIG(TAG,
+                "  Reference Resistance: %.2fΩ\n"
+                "  RTD: %u-wire %.2fΩ\n"
+                "  Mains Filter: %s",
+                reference_resistance_, rtd_wires_, rtd_nominal_resistance_,
                 (filter_ == FILTER_60HZ ? "60 Hz" : (filter_ == FILTER_50HZ ? "50 Hz" : "Unknown!")));
 }
 
@@ -104,7 +107,8 @@ void MAX31865Sensor::read_data_() {
 
   // Check faults
   const uint8_t faults = this->read_register_(FAULT_STATUS_REG);
-  if ((has_fault_ = faults & 0b00111100)) {
+  has_fault_ = faults & 0b00111100;
+  if (has_fault_) {
     if (faults & (1 << 2)) {
       ESP_LOGE(TAG, "Overvoltage/undervoltage fault");
     }
@@ -123,7 +127,8 @@ void MAX31865Sensor::read_data_() {
   } else {
     this->status_clear_error();
   }
-  if ((has_warn_ = faults & 0b11000000)) {
+  has_warn_ = faults & 0b11000000;
+  if (has_warn_) {
     if (faults & (1 << 6)) {
       ESP_LOGW(TAG, "RTD Low Threshold");
     }

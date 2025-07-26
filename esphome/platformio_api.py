@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 import json
-from typing import Union
-from pathlib import Path
-
 import logging
 import os
+from pathlib import Path
 import re
 import subprocess
 
@@ -20,9 +18,10 @@ def patch_structhash():
     # removed/added. This might have unintended consequences, but this improves compile
     # times greatly when adding/removing components and a simple clean build solves
     # all issues
-    from platformio.run import helpers, cli
-    from os.path import join, isdir, getmtime
     from os import makedirs
+    from os.path import getmtime, isdir, join
+
+    from platformio.run import cli, helpers
 
     def patched_clean_build_dir(build_dir, *args):
         from platformio import fs
@@ -47,13 +46,13 @@ FILTER_PLATFORMIO_LINES = [
     r"CONFIGURATION: https://docs.platformio.org/.*",
     r"DEBUG: Current.*",
     r"LDF Modes:.*",
-    r"LDF: Library Dependency Finder -> http://bit.ly/configure-pio-ldf.*",
+    r"LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf.*",
     f"Looking for {IGNORE_LIB_WARNINGS} library in registry",
     f"Warning! Library `.*'{IGNORE_LIB_WARNINGS}.*` has not been found in PlatformIO Registry.",
     f"You can ignore this message, if `.*{IGNORE_LIB_WARNINGS}.*` is a built-in library.*",
     r"Scanning dependencies...",
     r"Found \d+ compatible libraries",
-    r"Memory Usage -> http://bit.ly/pio-memory-usage",
+    r"Memory Usage -> https://bit.ly/pio-memory-usage",
     r"Found: https://platformio.org/lib/show/.*",
     r"Using cache: .*",
     r"Installing dependencies",
@@ -73,12 +72,14 @@ FILTER_PLATFORMIO_LINES = [
 ]
 
 
-def run_platformio_cli(*args, **kwargs) -> Union[str, int]:
+def run_platformio_cli(*args, **kwargs) -> str | int:
     os.environ["PLATFORMIO_FORCE_COLOR"] = "true"
     os.environ["PLATFORMIO_BUILD_DIR"] = os.path.abspath(CORE.relative_pioenvs_path())
     os.environ.setdefault(
         "PLATFORMIO_LIBDEPS_DIR", os.path.abspath(CORE.relative_piolibdeps_path())
     )
+    # Suppress Python syntax warnings from third-party scripts during compilation
+    os.environ.setdefault("PYTHONWARNINGS", "ignore::SyntaxWarning")
     cmd = ["platformio"] + list(args)
 
     if not CORE.verbose:
@@ -93,7 +94,7 @@ def run_platformio_cli(*args, **kwargs) -> Union[str, int]:
     return run_external_command(platformio.__main__.main, *cmd, **kwargs)
 
 
-def run_platformio_cli_run(config, verbose, *args, **kwargs) -> Union[str, int]:
+def run_platformio_cli_run(config, verbose, *args, **kwargs) -> str | int:
     command = ["run", "-d", CORE.build_path]
     if verbose:
         command += ["-v"]
@@ -130,9 +131,11 @@ def _load_idedata(config):
     temp_idedata = Path(CORE.relative_internal_path("idedata", f"{CORE.name}.json"))
 
     changed = False
-    if not platformio_ini.is_file() or not temp_idedata.is_file():
-        changed = True
-    elif platformio_ini.stat().st_mtime >= temp_idedata.stat().st_mtime:
+    if (
+        not platformio_ini.is_file()
+        or not temp_idedata.is_file()
+        or platformio_ini.stat().st_mtime >= temp_idedata.stat().st_mtime
+    ):
         changed = True
 
     if not changed:

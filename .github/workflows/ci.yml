@@ -1,15 +1,27 @@
 ---
 name: CI
 
-# yamllint disable-line rule:truthy
 on:
   push:
     branches: [dev, beta, release]
 
   pull_request:
+    paths:
+      - "**"
+      - "!.github/workflows/*.yml"
+      - "!.github/actions/build-image/*"
+      - ".github/workflows/ci.yml"
+      - "!.yamllint"
+      - "!.github/dependabot.yml"
+      - "!docker/**"
+  merge_group:
 
 permissions:
   contents: read
+
+env:
+  DEFAULT_PYTHON: "3.11"
+  PYUPGRADE_TARGET: "--py311-plus"
 
 concurrency:
   # yamllint disable-line rule:line-length
@@ -17,49 +29,232 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+  common:
+    name: Create common environment
+    runs-on: ubuntu-24.04
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Generate cache-key
+        id: cache-key
+        run: echo key="${{ hashFiles('requirements.txt', 'requirements_test.txt', '.pre-commit-config.yaml') }}" >> $GITHUB_OUTPUT
+      - name: Set up Python ${{ env.DEFAULT_PYTHON }}
+        id: python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+      - name: Restore Python virtual environment
+        id: cache-venv
+        uses: actions/cache@v4.2.3
+        with:
+          path: venv
+          # yamllint disable-line rule:line-length
+          key: ${{ runner.os }}-${{ steps.python.outputs.python-version }}-venv-${{ steps.cache-key.outputs.key }}
+      - name: Create Python virtual environment
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          python --version
+          pip install -r requirements.txt -r requirements_test.txt pre-commit
+          pip install -e .
+
+  pylint:
+    name: Check pylint
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - determine-jobs
+    if: needs.determine-jobs.outputs.python-linters == 'true'
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: Run pylint
+        run: |
+          . venv/bin/activate
+          pylint -f parseable --persistent=n esphome
+      - name: Suggested changes
+        run: script/ci-suggest-changes
+        if: always()
+
+  ci-custom:
+    name: Run script/ci-custom
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: Register matcher
+        run: echo "::add-matcher::.github/workflows/matchers/ci-custom.json"
+      - name: Run script/ci-custom
+        run: |
+          . venv/bin/activate
+          script/ci-custom.py
+          script/build_codeowners.py --check
+          script/build_language_schema.py --check
+
+  pytest:
+    name: Run pytest
     strategy:
       fail-fast: false
       matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+        exclude:
+          # Minimize CI resource usage
+          # by only running the Python version
+          # version used for docker images on Windows and macOS
+          - python-version: "3.13"
+            os: windows-latest
+          - python-version: "3.12"
+            os: windows-latest
+          - python-version: "3.13"
+            os: macOS-latest
+          - python-version: "3.12"
+            os: macOS-latest
+    runs-on: ${{ matrix.os }}
+    needs:
+      - common
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        id: restore-python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: Register matcher
+        run: echo "::add-matcher::.github/workflows/matchers/pytest.json"
+      - name: Run pytest
+        if: matrix.os == 'windows-latest'
+        run: |
+          . ./venv/Scripts/activate.ps1
+          pytest -vv --cov-report=xml --tb=native -n auto tests --ignore=tests/integration/
+      - name: Run pytest
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macOS-latest'
+        run: |
+          . venv/bin/activate
+          pytest -vv --cov-report=xml --tb=native -n auto tests --ignore=tests/integration/
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5.4.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Save Python virtual environment cache
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/cache/save@v4.2.3
+        with:
+          path: venv
+          key: ${{ runner.os }}-${{ steps.restore-python.outputs.python-version }}-venv-${{ needs.common.outputs.cache-key }}
+
+  determine-jobs:
+    name: Determine which jobs to run
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+    outputs:
+      integration-tests: ${{ steps.determine.outputs.integration-tests }}
+      clang-tidy: ${{ steps.determine.outputs.clang-tidy }}
+      python-linters: ${{ steps.determine.outputs.python-linters }}
+      changed-components: ${{ steps.determine.outputs.changed-components }}
+      component-test-count: ${{ steps.determine.outputs.component-test-count }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+        with:
+          # Fetch enough history to find the merge base
+          fetch-depth: 2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: Determine which tests to run
+        id: determine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . venv/bin/activate
+          output=$(python script/determine-jobs.py)
+          echo "Test determination output:"
+          echo "$output" | jq
+
+          # Extract individual fields
+          echo "integration-tests=$(echo "$output" | jq -r '.integration_tests')" >> $GITHUB_OUTPUT
+          echo "clang-tidy=$(echo "$output" | jq -r '.clang_tidy')" >> $GITHUB_OUTPUT
+          echo "python-linters=$(echo "$output" | jq -r '.python_linters')" >> $GITHUB_OUTPUT
+          echo "changed-components=$(echo "$output" | jq -c '.changed_components')" >> $GITHUB_OUTPUT
+          echo "component-test-count=$(echo "$output" | jq -r '.component_test_count')" >> $GITHUB_OUTPUT
+
+  integration-tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    needs:
+      - common
+      - determine-jobs
+    if: needs.determine-jobs.outputs.integration-tests == 'true'
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Set up Python 3.13
+        id: python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.13"
+      - name: Restore Python virtual environment
+        id: cache-venv
+        uses: actions/cache@v4.2.3
+        with:
+          path: venv
+          key: ${{ runner.os }}-${{ steps.python.outputs.python-version }}-venv-${{ needs.common.outputs.cache-key }}
+      - name: Create Python virtual environment
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          python --version
+          pip install -r requirements.txt -r requirements_test.txt
+          pip install -e .
+      - name: Register matcher
+        run: echo "::add-matcher::.github/workflows/matchers/pytest.json"
+      - name: Run integration tests
+        run: |
+          . venv/bin/activate
+          pytest -vv --no-cov --tb=native -n auto tests/integration/
+
+  clang-tidy:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - determine-jobs
+    if: needs.determine-jobs.outputs.clang-tidy == 'true'
+    env:
+      GH_TOKEN: ${{ github.token }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
         include:
-          - id: ci-custom
-            name: Run script/ci-custom
-          - id: lint-python
-            name: Run script/lint-python
-          - id: test
-            file: tests/test1.yaml
-            name: Test tests/test1.yaml
-            pio_cache_key: test1
-          - id: test
-            file: tests/test2.yaml
-            name: Test tests/test2.yaml
-            pio_cache_key: test2
-          - id: test
-            file: tests/test3.yaml
-            name: Test tests/test3.yaml
-            pio_cache_key: test3
-          - id: test
-            file: tests/test4.yaml
-            name: Test tests/test4.yaml
-            pio_cache_key: test4
-          - id: test
-            file: tests/test5.yaml
-            name: Test tests/test5.yaml
-            pio_cache_key: test5
-          - id: test
-            file: tests/test6.yaml
-            name: Test tests/test6.yaml
-            pio_cache_key: test6
-          - id: test
-            file: tests/test7.yaml
-            name: Test tests/test7.yaml
-            pio_cache_key: test7
-          - id: pytest
-            name: Run pytest
-          - id: clang-format
-            name: Run script/clang-format
           - id: clang-tidy
             name: Run script/clang-tidy for ESP8266
             options: --environment esp8266-arduino-tidy --grep USE_ESP8266
@@ -84,106 +279,222 @@ jobs:
             name: Run script/clang-tidy for ESP32 IDF
             options: --environment esp32-idf-tidy --grep USE_ESP_IDF
             pio_cache_key: tidyesp32-idf
-          - id: yamllint
-            name: Run yamllint
+          - id: clang-tidy
+            name: Run script/clang-tidy for ZEPHYR
+            options: --environment nrf52-tidy --grep USE_ZEPHYR
+            pio_cache_key: tidy-zephyr
+            ignore_errors: false
 
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        id: python
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
         with:
-          python-version: "3.9"
+          # Need history for HEAD~1 to work for checking changed files
+          fetch-depth: 2
 
-      - name: Cache virtualenv
-        uses: actions/cache@v3
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
         with:
-          path: .venv
-          # yamllint disable-line rule:line-length
-          key: venv-${{ steps.python.outputs.python-version }}-${{ hashFiles('requirements*.txt') }}
-          restore-keys: |
-            venv-${{ steps.python.outputs.python-version }}-
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
 
-      - name: Set up virtualenv
-        # yamllint disable rule:line-length
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install -U pip
-          pip install -r requirements.txt -r requirements_optional.txt -r requirements_test.txt
-          pip install -e .
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> $GITHUB_ENV
-        # yamllint enable rule:line-length
-
-      # Use per check platformio cache because checks use different parts
       - name: Cache platformio
-        uses: actions/cache@v3
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/cache@v4.2.3
         with:
           path: ~/.platformio
-          # yamllint disable-line rule:line-length
           key: platformio-${{ matrix.pio_cache_key }}-${{ hashFiles('platformio.ini') }}
-        if: matrix.id == 'test' || matrix.id == 'clang-tidy'
 
-      - name: Install clang tools
-        run: |
-          sudo apt-get install \
-              clang-format-11 \
-              clang-tidy-11
-        if: matrix.id == 'clang-tidy' || matrix.id == 'clang-format'
+      - name: Cache platformio
+        if: github.ref != 'refs/heads/dev'
+        uses: actions/cache/restore@v4.2.3
+        with:
+          path: ~/.platformio
+          key: platformio-${{ matrix.pio_cache_key }}-${{ hashFiles('platformio.ini') }}
 
       - name: Register problem matchers
         run: |
-          echo "::add-matcher::.github/workflows/matchers/ci-custom.json"
-          echo "::add-matcher::.github/workflows/matchers/lint-python.json"
-          echo "::add-matcher::.github/workflows/matchers/python.json"
-          echo "::add-matcher::.github/workflows/matchers/pytest.json"
           echo "::add-matcher::.github/workflows/matchers/gcc.json"
           echo "::add-matcher::.github/workflows/matchers/clang-tidy.json"
 
-      - name: Lint Custom
+      - name: Run 'pio run --list-targets -e esp32-idf-tidy'
+        if: matrix.name == 'Run script/clang-tidy for ESP32 IDF'
         run: |
-          script/ci-custom.py
-          script/build_codeowners.py --check
-        if: matrix.id == 'ci-custom'
+          . venv/bin/activate
+          mkdir -p .temp
+          pio run --list-targets -e esp32-idf-tidy
 
-      - name: Lint Python
-        run: script/lint-python -a
-        if: matrix.id == 'lint-python'
-
-      - run: esphome compile ${{ matrix.file }}
-        if: matrix.id == 'test'
-        env:
-          # Also cache libdeps, store them in a ~/.platformio subfolder
-          PLATFORMIO_LIBDEPS_DIR: ~/.platformio/libdeps
-
-      - name: Run pytest
+      - name: Check if full clang-tidy scan needed
+        id: check_full_scan
         run: |
-          pytest -vv --tb=native tests
-        if: matrix.id == 'pytest'
-
-      # Also run git-diff-index so that the step is marked as failed on
-      # formatting errors, since clang-format doesn't do anything but
-      # change files if -i is passed.
-      - name: Run clang-format
-        run: |
-          script/clang-format -i
-          git diff-index --quiet HEAD --
-        if: matrix.id == 'clang-format'
+          . venv/bin/activate
+          if python script/clang_tidy_hash.py --check; then
+            echo "full_scan=true" >> $GITHUB_OUTPUT
+            echo "reason=hash_changed" >> $GITHUB_OUTPUT
+          else
+            echo "full_scan=false" >> $GITHUB_OUTPUT
+            echo "reason=normal" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run clang-tidy
         run: |
-          script/clang-tidy --all-headers --fix ${{ matrix.options }}
-        if: matrix.id == 'clang-tidy'
+          . venv/bin/activate
+          if [ "${{ steps.check_full_scan.outputs.full_scan }}" = "true" ]; then
+            echo "Running FULL clang-tidy scan (hash changed)"
+            script/clang-tidy --all-headers --fix ${{ matrix.options }} ${{ matrix.ignore_errors && '|| true' || '' }}
+          else
+            echo "Running clang-tidy on changed files only"
+            script/clang-tidy --all-headers --fix --changed ${{ matrix.options }} ${{ matrix.ignore_errors && '|| true' || '' }}
+          fi
         env:
           # Also cache libdeps, store them in a ~/.platformio subfolder
           PLATFORMIO_LIBDEPS_DIR: ~/.platformio/libdeps
 
-      - name: Run yamllint
-        if: matrix.id == 'yamllint'
-        uses: frenck/action-yamllint@v1.3.1
-
       - name: Suggested changes
-        run: script/ci-suggest-changes
+        run: script/ci-suggest-changes ${{ matrix.ignore_errors && '|| true' || '' }}
         # yamllint disable-line rule:line-length
-        if: always() && (matrix.id == 'clang-tidy' || matrix.id == 'clang-format' || matrix.id == 'lint-python')
+        if: always()
+
+  test-build-components:
+    name: Component test ${{ matrix.file }}
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - determine-jobs
+    if: github.event_name == 'pull_request' && fromJSON(needs.determine-jobs.outputs.component-test-count) > 0 && fromJSON(needs.determine-jobs.outputs.component-test-count) < 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        file: ${{ fromJson(needs.determine-jobs.outputs.changed-components) }}
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsdl2-dev
+
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: test_build_components -e config -c ${{ matrix.file }}
+        run: |
+          . venv/bin/activate
+          ./script/test_build_components -e config -c ${{ matrix.file }}
+      - name: test_build_components -e compile -c ${{ matrix.file }}
+        run: |
+          . venv/bin/activate
+          ./script/test_build_components -e compile -c ${{ matrix.file }}
+
+  test-build-components-splitter:
+    name: Split components for testing into 20 groups maximum
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - determine-jobs
+    if: github.event_name == 'pull_request' && fromJSON(needs.determine-jobs.outputs.component-test-count) >= 100
+    outputs:
+      matrix: ${{ steps.split.outputs.components }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Split components into 20 groups
+        id: split
+        run: |
+          components=$(echo '${{ needs.determine-jobs.outputs.changed-components }}' | jq -c '.[]' | shuf | jq -s -c '[_nwise(20) | join(" ")]')
+          echo "components=$components" >> $GITHUB_OUTPUT
+
+  test-build-components-split:
+    name: Test split components
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - determine-jobs
+      - test-build-components-splitter
+    if: github.event_name == 'pull_request' && fromJSON(needs.determine-jobs.outputs.component-test-count) >= 100
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        components: ${{ fromJson(needs.test-build-components-splitter.outputs.matrix) }}
+    steps:
+      - name: List components
+        run: echo ${{ matrix.components }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsdl2-dev
+
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - name: Validate config
+        run: |
+          . venv/bin/activate
+          for component in ${{ matrix.components }}; do
+            ./script/test_build_components -e config -c $component
+          done
+      - name: Compile config
+        run: |
+          . venv/bin/activate
+          mkdir build_cache
+          export PLATFORMIO_BUILD_CACHE_DIR=$PWD/build_cache
+          for component in ${{ matrix.components }}; do
+            ./script/test_build_components -e compile -c $component
+          done
+
+  pre-commit-ci-lite:
+    name: pre-commit.ci lite
+    runs-on: ubuntu-latest
+    needs:
+      - common
+    if: github.event_name == 'pull_request' && github.base_ref != 'beta' && github.base_ref != 'release'
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      - name: Restore Python
+        uses: ./.github/actions/restore-python
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache-key: ${{ needs.common.outputs.cache-key }}
+      - uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: pylint,clang-tidy-hash
+      - uses: pre-commit-ci/lite-action@v1.1.0
+        if: always()
+
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-24.04
+    needs:
+      - common
+      - ci-custom
+      - pylint
+      - pytest
+      - integration-tests
+      - clang-tidy
+      - determine-jobs
+      - test-build-components
+      - test-build-components-splitter
+      - test-build-components-split
+      - pre-commit-ci-lite
+    if: always()
+    steps:
+      - name: Success
+        if: ${{ !(contains(needs.*.result, 'failure')) }}
+        run: exit 0
+      - name: Failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        env:
+          JSON_DOC: ${{ toJSON(needs) }}
+        run: |
+          echo $JSON_DOC | jq
+          exit 1

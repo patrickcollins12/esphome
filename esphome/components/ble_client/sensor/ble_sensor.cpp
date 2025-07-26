@@ -1,7 +1,7 @@
 #include "ble_sensor.h"
-#include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 
 #ifdef USE_ESP32
@@ -11,15 +11,22 @@ namespace ble_client {
 
 static const char *const TAG = "ble_sensor";
 
-void BLESensor::loop() {}
+void BLESensor::loop() {
+  // Parent BLEClientNode has a loop() method, but this component uses
+  // polling via update() and BLE callbacks so loop isn't needed
+  this->disable_loop();
+}
 
 void BLESensor::dump_config() {
   LOG_SENSOR("", "BLE Sensor", this);
-  ESP_LOGCONFIG(TAG, "  MAC address        : %s", this->parent()->address_str().c_str());
-  ESP_LOGCONFIG(TAG, "  Service UUID       : %s", this->service_uuid_.to_string().c_str());
-  ESP_LOGCONFIG(TAG, "  Characteristic UUID: %s", this->char_uuid_.to_string().c_str());
-  ESP_LOGCONFIG(TAG, "  Descriptor UUID    : %s", this->descr_uuid_.to_string().c_str());
-  ESP_LOGCONFIG(TAG, "  Notifications      : %s", YESNO(this->notify_));
+  ESP_LOGCONFIG(TAG,
+                "  MAC address        : %s\n"
+                "  Service UUID       : %s\n"
+                "  Characteristic UUID: %s\n"
+                "  Descriptor UUID    : %s\n"
+                "  Notifications      : %s",
+                this->parent()->address_str().c_str(), this->service_uuid_.to_string().c_str(),
+                this->char_uuid_.to_string().c_str(), this->descr_uuid_.to_string().c_str(), YESNO(this->notify_));
   LOG_UPDATE_INTERVAL(this);
 }
 
@@ -33,7 +40,7 @@ void BLESensor::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t ga
       }
       break;
     }
-    case ESP_GATTC_DISCONNECT_EVT: {
+    case ESP_GATTC_CLOSE_EVT: {
       ESP_LOGW(TAG, "[%s] Disconnected!", this->get_name().c_str());
       this->status_set_warning();
       this->publish_state(NAN);
@@ -74,8 +81,6 @@ void BLESensor::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t ga
       break;
     }
     case ESP_GATTC_READ_CHAR_EVT: {
-      if (param->read.conn_id != this->parent()->get_conn_id())
-        break;
       if (param->read.status != ESP_GATT_OK) {
         ESP_LOGW(TAG, "Error reading char at handle %d, status=%d", param->read.handle, param->read.status);
         break;
@@ -87,15 +92,23 @@ void BLESensor::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t ga
       break;
     }
     case ESP_GATTC_NOTIFY_EVT: {
-      if (param->notify.conn_id != this->parent()->get_conn_id() || param->notify.handle != this->handle)
-        break;
-      ESP_LOGV(TAG, "[%s] ESP_GATTC_NOTIFY_EVT: handle=0x%x, value=0x%x", this->get_name().c_str(),
+      ESP_LOGD(TAG, "[%s] ESP_GATTC_NOTIFY_EVT: handle=0x%x, value=0x%x", this->get_name().c_str(),
                param->notify.handle, param->notify.value[0]);
+      if (param->notify.handle != this->handle)
+        break;
       this->publish_state(this->parse_data_(param->notify.value, param->notify.value_len));
       break;
     }
     case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
-      this->node_state = espbt::ClientState::ESTABLISHED;
+      if (param->reg_for_notify.handle == this->handle) {
+        if (param->reg_for_notify.status != ESP_GATT_OK) {
+          ESP_LOGW(TAG, "Error registering for notifications at handle %d, status=%d", param->reg_for_notify.handle,
+                   param->reg_for_notify.status);
+          break;
+        }
+        this->node_state = espbt::ClientState::ESTABLISHED;
+        ESP_LOGD(TAG, "Register for notify on %s complete", this->char_uuid_.to_string().c_str());
+      }
       break;
     }
     default:

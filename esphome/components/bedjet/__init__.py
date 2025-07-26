@@ -1,11 +1,7 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import ble_client, time
-from esphome.const import (
-    CONF_ID,
-    CONF_RECEIVE_TIMEOUT,
-    CONF_TIME_ID,
-)
+import esphome.config_validation as cv
+from esphome.const import CONF_ID, CONF_RECEIVE_TIMEOUT, CONF_TIME_ID
 
 CODEOWNERS = ["@jhansche"]
 DEPENDENCIES = ["ble_client"]
@@ -31,7 +27,7 @@ CONFIG_SCHEMA = (
 
 BEDJET_CLIENT_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_BEDJET_ID): cv.use_id(BedJetHub),
+        cv.GenerateID(CONF_BEDJET_ID): cv.use_id(BedJetHub),
     }
 )
 
@@ -45,8 +41,8 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await ble_client.register_ble_node(var, config)
-    if CONF_TIME_ID in config:
-        time_ = await cg.get_variable(config[CONF_TIME_ID])
+    if time_id := config.get(CONF_TIME_ID):
+        time_ = await cg.get_variable(time_id)
         cg.add(var.set_time_id(time_))
-    if CONF_RECEIVE_TIMEOUT in config:
-        cg.add(var.set_status_timeout(config[CONF_RECEIVE_TIMEOUT]))
+    if (receive_timeout := config.get(CONF_RECEIVE_TIMEOUT)) is not None:
+        cg.add(var.set_status_timeout(receive_timeout))

@@ -1,8 +1,8 @@
 #include "sgp30.h"
+#include <cinttypes>
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
-#include "esphome/core/application.h"
-#include <cinttypes>
 
 namespace esphome {
 namespace sgp30 {
@@ -33,8 +33,6 @@ const uint32_t SHORTEST_BASELINE_STORE_INTERVAL = 3600;
 const uint32_t MAXIMUM_STORAGE_DIFF = 50;
 
 void SGP30Component::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up SGP30...");
-
   // Serial Number identification
   uint16_t raw_serial_number[3];
   if (!this->get_register(SGP30_CMD_GET_SERIAL_ID, raw_serial_number, 3)) {
@@ -73,9 +71,10 @@ void SGP30Component::setup() {
     return;
   }
 
-  // Hash with compilation time
+  // Hash with compilation time and serial number
   // This ensures the baseline storage is cleared after OTA
-  uint32_t hash = fnv1_hash(App.get_compilation_time());
+  // Serial numbers are unique to each sensor, so mulitple sensors can be used without conflict
+  uint32_t hash = fnv1_hash(App.get_compilation_time() + std::to_string(this->serial_number_));
   this->pref_ = global_preferences->make_preference<SGP30Baselines>(hash, true);
 
   if (this->pref_.load(&this->baselines_storage_)) {
@@ -181,9 +180,18 @@ void SGP30Component::send_env_data_() {
     ESP_LOGD(TAG, "External compensation data received: Temperature %0.2f°C", temperature);
   }
 
-  float absolute_humidity =
-      216.7f * (((humidity / 100) * 6.112f * std::exp((17.62f * temperature) / (243.12f + temperature))) /
-                (273.15f + temperature));
+  float absolute_humidity;
+  if (temperature < 0) {
+    absolute_humidity =
+        216.67f *
+        ((humidity * 0.061121f * std::exp((23.036f - temperature / 333.7f) * (temperature / (279.82f + temperature)))) /
+         (273.15f + temperature));
+  } else {
+    absolute_humidity =
+        216.67f *
+        ((humidity * 0.061121f * std::exp((18.678f - temperature / 234.5f) * (temperature / (257.14f + temperature)))) /
+         (273.15f + temperature));
+  }
   uint8_t humidity_full = uint8_t(std::floor(absolute_humidity));
   uint8_t humidity_dec = uint8_t(std::floor((absolute_humidity - std::floor(absolute_humidity)) * 256));
   ESP_LOGD(TAG, "Calculated Absolute humidity: %0.3f g/m³ (0x%04X)", absolute_humidity,
@@ -222,31 +230,33 @@ void SGP30Component::dump_config() {
   if (this->is_failed()) {
     switch (this->error_code_) {
       case COMMUNICATION_FAILED:
-        ESP_LOGW(TAG, "Communication failed! Is the sensor connected?");
+        ESP_LOGW(TAG, ESP_LOG_MSG_COMM_FAIL);
         break;
       case MEASUREMENT_INIT_FAILED:
-        ESP_LOGW(TAG, "Measurement Initialization failed!");
+        ESP_LOGW(TAG, "Measurement Initialization failed");
         break;
       case INVALID_ID:
         ESP_LOGW(TAG, "Sensor reported an invalid ID. Is this an SGP30?");
         break;
       case UNSUPPORTED_ID:
-        ESP_LOGW(TAG, "Sensor reported an unsupported ID (SGPC3).");
+        ESP_LOGW(TAG, "Sensor reported an unsupported ID (SGPC3)");
         break;
       default:
-        ESP_LOGW(TAG, "Unknown setup error!");
+        ESP_LOGW(TAG, "Unknown setup error");
         break;
     }
   } else {
     ESP_LOGCONFIG(TAG, "  Serial number: %" PRIu64, this->serial_number_);
     if (this->eco2_baseline_ != 0x0000 && this->tvoc_baseline_ != 0x0000) {
-      ESP_LOGCONFIG(TAG, "  Baseline:");
-      ESP_LOGCONFIG(TAG, "    eCO2 Baseline: 0x%04X", this->eco2_baseline_);
-      ESP_LOGCONFIG(TAG, "    TVOC Baseline: 0x%04X", this->tvoc_baseline_);
+      ESP_LOGCONFIG(TAG,
+                    "  Baseline:\n"
+                    "    eCO2 Baseline: 0x%04X\n"
+                    "    TVOC Baseline: 0x%04X",
+                    this->eco2_baseline_, this->tvoc_baseline_);
     } else {
       ESP_LOGCONFIG(TAG, "  Baseline: No baseline configured");
     }
-    ESP_LOGCONFIG(TAG, "  Warm up time: %us", this->required_warm_up_time_);
+    ESP_LOGCONFIG(TAG, "  Warm up time: %" PRIu32 "s", this->required_warm_up_time_);
   }
   LOG_UPDATE_INTERVAL(this);
   LOG_SENSOR("  ", "eCO2 sensor", this->eco2_sensor_);
@@ -284,10 +294,6 @@ void SGP30Component::update() {
       this->eco2_sensor_->publish_state(eco2);
     if (this->tvoc_sensor_ != nullptr)
       this->tvoc_sensor_->publish_state(tvoc);
-
-    if (this->get_update_interval() != 1000) {
-      ESP_LOGW(TAG, "Update interval for SGP30 sensor must be set to 1s for optimized readout");
-    }
 
     this->status_clear_warning();
     this->send_env_data_();

@@ -1,7 +1,15 @@
+from esphome import automation
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import display, spi
-from esphome.const import CONF_ID, CONF_INTENSITY, CONF_LAMBDA, CONF_NUM_CHIPS
+import esphome.config_validation as cv
+from esphome.const import (
+    CONF_FLIP_X,
+    CONF_ID,
+    CONF_INTENSITY,
+    CONF_LAMBDA,
+    CONF_NUM_CHIPS,
+    CONF_STATE,
+)
 
 CODEOWNERS = ["@rspaargaren"]
 DEPENDENCIES = ["spi"]
@@ -15,6 +23,7 @@ CONF_SCROLL_MODE = "scroll_mode"
 CONF_REVERSE_ENABLE = "reverse_enable"
 CONF_NUM_CHIP_LINES = "num_chip_lines"
 CONF_CHIP_LINES_STYLE = "chip_lines_style"
+
 
 integration_ns = cg.esphome_ns.namespace("max7219digit")
 ChipLinesStyle = integration_ns.enum("ChipLinesStyle")
@@ -38,7 +47,7 @@ CHIP_MODES = {
 
 max7219_ns = cg.esphome_ns.namespace("max7219digit")
 MAX7219Component = max7219_ns.class_(
-    "MAX7219Component", cg.PollingComponent, spi.SPIDevice, display.DisplayBuffer
+    "MAX7219Component", spi.SPIDevice, display.DisplayBuffer, cg.PollingComponent
 )
 MAX7219ComponentRef = MAX7219Component.operator("ref")
 
@@ -67,6 +76,7 @@ CONFIG_SCHEMA = (
                 CONF_SCROLL_DWELL, default="1000ms"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_REVERSE_ENABLE, default=False): cv.boolean,
+            cv.Optional(CONF_FLIP_X, default=False): cv.boolean,
         }
     )
     .extend(cv.polling_component_schema("500ms"))
@@ -76,7 +86,6 @@ CONFIG_SCHEMA = (
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
     await spi.register_spi_device(var, config)
     await display.register_display(var, config)
 
@@ -91,9 +100,94 @@ async def to_code(config):
     cg.add(var.set_scroll(config[CONF_SCROLL_ENABLE]))
     cg.add(var.set_scroll_mode(config[CONF_SCROLL_MODE]))
     cg.add(var.set_reverse(config[CONF_REVERSE_ENABLE]))
+    cg.add(var.set_flip_x(config[CONF_FLIP_X]))
 
     if CONF_LAMBDA in config:
         lambda_ = await cg.process_lambda(
             config[CONF_LAMBDA], [(MAX7219ComponentRef, "it")], return_type=cg.void
         )
         cg.add(var.set_writer(lambda_))
+
+
+DisplayInvertAction = max7219_ns.class_("DisplayInvertAction", automation.Action)
+DisplayVisibilityAction = max7219_ns.class_(
+    "DisplayVisibilityAction", automation.Action
+)
+DisplayReverseAction = max7219_ns.class_("DisplayReverseAction", automation.Action)
+DisplayIntensityAction = max7219_ns.class_("DisplayIntensityAction", automation.Action)
+
+
+MAX7219_OFF_ACTION_SCHEMA = automation.maybe_simple_id(
+    {
+        cv.GenerateID(): cv.use_id(MAX7219Component),
+        cv.Optional(CONF_STATE, default=False): False,
+    }
+)
+
+MAX7219_ON_ACTION_SCHEMA = automation.maybe_simple_id(
+    {
+        cv.GenerateID(): cv.use_id(MAX7219Component),
+        cv.Optional(CONF_STATE, default=True): True,
+    }
+)
+
+
+@automation.register_action(
+    "max7129digit.invert_off", DisplayInvertAction, MAX7219_OFF_ACTION_SCHEMA
+)
+@automation.register_action(
+    "max7129digit.invert_on", DisplayInvertAction, MAX7219_ON_ACTION_SCHEMA
+)
+async def max7129digit_invert_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_state(config[CONF_STATE]))
+    return var
+
+
+@automation.register_action(
+    "max7129digit.turn_off", DisplayVisibilityAction, MAX7219_OFF_ACTION_SCHEMA
+)
+@automation.register_action(
+    "max7129digit.turn_on", DisplayVisibilityAction, MAX7219_ON_ACTION_SCHEMA
+)
+async def max7129digit_visible_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_state(config[CONF_STATE]))
+    return var
+
+
+@automation.register_action(
+    "max7129digit.reverse_off", DisplayReverseAction, MAX7219_OFF_ACTION_SCHEMA
+)
+@automation.register_action(
+    "max7129digit.reverse_on", DisplayReverseAction, MAX7219_ON_ACTION_SCHEMA
+)
+async def max7129digit_reverse_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_state(config[CONF_STATE]))
+    return var
+
+
+MAX7219_INTENSITY_SCHEMA = cv.maybe_simple_value(
+    {
+        cv.GenerateID(): cv.use_id(MAX7219Component),
+        cv.Optional(CONF_INTENSITY, default=15): cv.templatable(
+            cv.int_range(min=0, max=15)
+        ),
+    },
+    key=CONF_INTENSITY,
+)
+
+
+@automation.register_action(
+    "max7129digit.intensity", DisplayIntensityAction, MAX7219_INTENSITY_SCHEMA
+)
+async def max7129digit_intensity_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_INTENSITY], args, cg.uint8)
+    cg.add(var.set_state(template_))
+    return var

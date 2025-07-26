@@ -8,7 +8,6 @@ namespace ssd1327_spi {
 static const char *const TAG = "ssd1327_spi";
 
 void SPISSD1327::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up SPI SSD1327...");
   this->spi_setup();
   this->dc_pin_->setup();  // OUTPUT
   if (this->cs_)
@@ -21,8 +20,7 @@ void SPISSD1327::setup() {
 void SPISSD1327::dump_config() {
   LOG_DISPLAY("", "SPI SSD1327", this);
   ESP_LOGCONFIG(TAG, "  Model: %s", this->model_str_());
-  if (this->cs_)
-    LOG_PIN("  CS Pin: ", this->cs_);
+  LOG_PIN("  CS Pin: ", this->cs_);
   LOG_PIN("  DC Pin: ", this->dc_pin_);
   LOG_PIN("  Reset Pin: ", this->reset_pin_);
   ESP_LOGCONFIG(TAG, "  Initial Brightness: %.2f", this->brightness_);

@@ -1,44 +1,53 @@
+from __future__ import annotations
+
+import gzip
 import hashlib
+import io
 import logging
 import random
 import socket
 import sys
 import time
-import gzip
 
 from esphome.core import EsphomeError
-from esphome.helpers import is_ip_address, resolve_ip_address
+from esphome.helpers import resolve_ip_address
 
-RESPONSE_OK = 0
-RESPONSE_REQUEST_AUTH = 1
+RESPONSE_OK = 0x00
+RESPONSE_REQUEST_AUTH = 0x01
 
-RESPONSE_HEADER_OK = 64
-RESPONSE_AUTH_OK = 65
-RESPONSE_UPDATE_PREPARE_OK = 66
-RESPONSE_BIN_MD5_OK = 67
-RESPONSE_RECEIVE_OK = 68
-RESPONSE_UPDATE_END_OK = 69
-RESPONSE_SUPPORTS_COMPRESSION = 70
+RESPONSE_HEADER_OK = 0x40
+RESPONSE_AUTH_OK = 0x41
+RESPONSE_UPDATE_PREPARE_OK = 0x42
+RESPONSE_BIN_MD5_OK = 0x43
+RESPONSE_RECEIVE_OK = 0x44
+RESPONSE_UPDATE_END_OK = 0x45
+RESPONSE_SUPPORTS_COMPRESSION = 0x46
+RESPONSE_CHUNK_OK = 0x47
 
-RESPONSE_ERROR_MAGIC = 128
-RESPONSE_ERROR_UPDATE_PREPARE = 129
-RESPONSE_ERROR_AUTH_INVALID = 130
-RESPONSE_ERROR_WRITING_FLASH = 131
-RESPONSE_ERROR_UPDATE_END = 132
-RESPONSE_ERROR_INVALID_BOOTSTRAPPING = 133
-RESPONSE_ERROR_WRONG_CURRENT_FLASH_CONFIG = 134
-RESPONSE_ERROR_WRONG_NEW_FLASH_CONFIG = 135
-RESPONSE_ERROR_ESP8266_NOT_ENOUGH_SPACE = 136
-RESPONSE_ERROR_ESP32_NOT_ENOUGH_SPACE = 137
-RESPONSE_ERROR_NO_UPDATE_PARTITION = 138
-RESPONSE_ERROR_MD5_MISMATCH = 139
-RESPONSE_ERROR_UNKNOWN = 255
+RESPONSE_ERROR_MAGIC = 0x80
+RESPONSE_ERROR_UPDATE_PREPARE = 0x81
+RESPONSE_ERROR_AUTH_INVALID = 0x82
+RESPONSE_ERROR_WRITING_FLASH = 0x83
+RESPONSE_ERROR_UPDATE_END = 0x84
+RESPONSE_ERROR_INVALID_BOOTSTRAPPING = 0x85
+RESPONSE_ERROR_WRONG_CURRENT_FLASH_CONFIG = 0x86
+RESPONSE_ERROR_WRONG_NEW_FLASH_CONFIG = 0x87
+RESPONSE_ERROR_ESP8266_NOT_ENOUGH_SPACE = 0x88
+RESPONSE_ERROR_ESP32_NOT_ENOUGH_SPACE = 0x89
+RESPONSE_ERROR_NO_UPDATE_PARTITION = 0x8A
+RESPONSE_ERROR_MD5_MISMATCH = 0x8B
+RESPONSE_ERROR_UNKNOWN = 0xFF
 
 OTA_VERSION_1_0 = 1
+OTA_VERSION_2_0 = 2
 
 MAGIC_BYTES = [0x6C, 0x26, 0xF7, 0x5C, 0x45]
 
 FEATURE_SUPPORTS_COMPRESSION = 0x01
+
+
+UPLOAD_BLOCK_SIZE = 8192
+UPLOAD_BUFFER_SIZE = UPLOAD_BLOCK_SIZE * 8
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,10 +88,7 @@ def recv_decode(sock, amount, decode=True):
 
 
 def receive_exactly(sock, amount, msg, expect, decode=True):
-    if decode:
-        data = []
-    else:
-        data = b""
+    data = [] if decode else b""
 
     try:
         data += recv_decode(sock, 1, decode=decode)
@@ -184,7 +190,9 @@ def send_check(sock, data, msg):
         raise OTAError(f"Error sending {msg}: {err}") from err
 
 
-def perform_ota(sock, password, file_handle, filename):
+def perform_ota(
+    sock: socket.socket, password: str, file_handle: io.IOBase, filename: str
+) -> None:
     file_contents = file_handle.read()
     file_size = len(file_contents)
     _LOGGER.info("Uploading %s (%s bytes)", filename, file_size)
@@ -194,8 +202,12 @@ def perform_ota(sock, password, file_handle, filename):
     send_check(sock, MAGIC_BYTES, "magic bytes")
 
     _, version = receive_exactly(sock, 2, "version", RESPONSE_OK)
-    if version != OTA_VERSION_1_0:
-        raise OTAError(f"Unsupported OTA version {version}")
+    _LOGGER.debug("Device support OTA version: %s", version)
+    supported_versions = (OTA_VERSION_1_0, OTA_VERSION_2_0)
+    if version not in supported_versions:
+        raise OTAError(
+            f"Device uses unsupported OTA version {version}, this ESPHome supports {supported_versions}"
+        )
 
     # Features
     send_check(sock, FEATURE_SUPPORTS_COMPRESSION, "features")
@@ -234,6 +246,9 @@ def perform_ota(sock, password, file_handle, filename):
         send_check(sock, result, "auth result")
         receive_exactly(sock, 1, "auth result", RESPONSE_AUTH_OK)
 
+    # Set higher timeout during upload
+    sock.settimeout(30.0)
+
     upload_size = len(upload_contents)
     upload_size_encoded = [
         (upload_size >> 24) & 0xFF,
@@ -254,20 +269,22 @@ def perform_ota(sock, password, file_handle, filename):
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
     # Limit send buffer (usually around 100kB) in order to have progress bar
     # show the actual progress
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
-    # Set higher timeout during upload
-    sock.settimeout(20.0)
+
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, UPLOAD_BUFFER_SIZE)
+    start_time = time.perf_counter()
 
     offset = 0
     progress = ProgressBar()
     while True:
-        chunk = upload_contents[offset : offset + 1024]
+        chunk = upload_contents[offset : offset + UPLOAD_BLOCK_SIZE]
         if not chunk:
             break
         offset += len(chunk)
 
         try:
             sock.sendall(chunk)
+            if version >= OTA_VERSION_2_0:
+                receive_exactly(sock, 1, "chunk OK", RESPONSE_CHUNK_OK)
         except OSError as err:
             sys.stderr.write("\n")
             raise OTAError(f"Error sending data: {err}") from err
@@ -277,8 +294,9 @@ def perform_ota(sock, password, file_handle, filename):
 
     # Enable nodelay for last checks
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    duration = time.perf_counter() - start_time
 
-    _LOGGER.info("Waiting for result...")
+    _LOGGER.info("Upload took %.2f seconds, waiting for result...", duration)
 
     receive_exactly(sock, 1, "receive OK", RESPONSE_RECEIVE_OK)
     receive_exactly(sock, 1, "Update end", RESPONSE_UPDATE_END_OK)
@@ -291,44 +309,45 @@ def perform_ota(sock, password, file_handle, filename):
 
 
 def run_ota_impl_(remote_host, remote_port, password, filename):
-    if is_ip_address(remote_host):
-        _LOGGER.info("Connecting to %s", remote_host)
-        ip = remote_host
-    else:
-        _LOGGER.info("Resolving IP address of %s", remote_host)
-        try:
-            ip = resolve_ip_address(remote_host)
-        except EsphomeError as err:
-            _LOGGER.error(
-                "Error resolving IP address of %s. Is it connected to WiFi?",
-                remote_host,
-            )
-            _LOGGER.error(
-                "(If this error persists, please set a static IP address: "
-                "https://esphome.io/components/wifi.html#manual-ips)"
-            )
-            raise OTAError(err) from err
-        _LOGGER.info(" -> %s", ip)
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(10.0)
     try:
-        sock.connect((ip, remote_port))
-    except OSError as err:
-        sock.close()
-        _LOGGER.error("Connecting to %s:%s failed: %s", remote_host, remote_port, err)
-        return 1
+        res = resolve_ip_address(remote_host, remote_port)
+    except EsphomeError as err:
+        _LOGGER.error(
+            "Error resolving IP address of %s. Is it connected to WiFi?",
+            remote_host,
+        )
+        _LOGGER.error(
+            "(If this error persists, please set a static IP address: "
+            "https://esphome.io/components/wifi.html#manual-ips)"
+        )
+        raise OTAError(err) from err
 
-    with open(filename, "rb") as file_handle:
+    for r in res:
+        af, socktype, _, _, sa = r
+        _LOGGER.info("Connecting to %s port %s...", sa[0], sa[1])
+        sock = socket.socket(af, socktype)
+        sock.settimeout(10.0)
         try:
-            perform_ota(sock, password, file_handle, filename)
-        except OTAError as err:
-            _LOGGER.error(str(err))
-            return 1
-        finally:
+            sock.connect(sa)
+        except OSError as err:
             sock.close()
+            _LOGGER.error("Connecting to %s port %s failed: %s", sa[0], sa[1], err)
+            continue
 
-    return 0
+        _LOGGER.info("Connected to %s", sa[0])
+        with open(filename, "rb") as file_handle:
+            try:
+                perform_ota(sock, password, file_handle, filename)
+            except OTAError as err:
+                _LOGGER.error(str(err))
+                return 1
+            finally:
+                sock.close()
+
+        return 0
+
+    _LOGGER.error("Connection failed.")
+    return 1
 
 
 def run_ota(remote_host, remote_port, password, filename):

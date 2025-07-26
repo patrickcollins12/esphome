@@ -15,7 +15,6 @@ static const char *const TAG = "apds9960";
 #define APDS9960_WRITE_BYTE(reg, value) APDS9960_ERROR_CHECK(this->write_byte(reg, value));
 
 void APDS9960::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up APDS9960...");
   uint8_t id;
   if (!this->read_byte(0x92, &id)) {  // ID register
     this->error_code_ = COMMUNICATION_FAILED;
@@ -23,7 +22,7 @@ void APDS9960::setup() {
     return;
   }
 
-  if (id != 0xAB && id != 0x9C && id != 0xA8) {  // APDS9960 all should have one of these IDs
+  if (id != 0xAB && id != 0x9C && id != 0xA8 && id != 0x9E) {  // APDS9960 all should have one of these IDs
     this->error_code_ = WRONG_ID;
     this->mark_failed();
     return;
@@ -116,8 +115,12 @@ void APDS9960::setup() {
   APDS9960_WRITE_BYTE(0x80, val);
 }
 bool APDS9960::is_color_enabled_() const {
-  return this->red_channel_ != nullptr || this->green_channel_ != nullptr || this->blue_channel_ != nullptr ||
-         this->clear_channel_ != nullptr;
+#ifdef USE_SENSOR
+  return this->red_sensor_ != nullptr || this->green_sensor_ != nullptr || this->blue_sensor_ != nullptr ||
+         this->clear_sensor_ != nullptr;
+#else
+  return false;
+#endif
 }
 
 void APDS9960::dump_config() {
@@ -125,10 +128,19 @@ void APDS9960::dump_config() {
   LOG_I2C_DEVICE(this);
 
   LOG_UPDATE_INTERVAL(this);
+
+#ifdef USE_SENSOR
+  LOG_SENSOR("  ", "Red channel", this->red_sensor_);
+  LOG_SENSOR("  ", "Green channel", this->green_sensor_);
+  LOG_SENSOR("  ", "Blue channel", this->blue_sensor_);
+  LOG_SENSOR("  ", "Clear channel", this->clear_sensor_);
+  LOG_SENSOR("  ", "Proximity", this->proximity_sensor_);
+#endif
+
   if (this->is_failed()) {
     switch (this->error_code_) {
       case COMMUNICATION_FAILED:
-        ESP_LOGE(TAG, "Communication with APDS9960 failed!");
+        ESP_LOGE(TAG, ESP_LOG_MSG_COMM_FAIL);
         break;
       case WRONG_ID:
         ESP_LOGE(TAG, "APDS9960 has invalid id!");
@@ -181,17 +193,22 @@ void APDS9960::read_color_data_(uint8_t status) {
   float blue_perc = (uint_blue / float(UINT16_MAX)) * 100.0f;
 
   ESP_LOGD(TAG, "Got clear=%.1f%% red=%.1f%% green=%.1f%% blue=%.1f%%", clear_perc, red_perc, green_perc, blue_perc);
-  if (this->clear_channel_ != nullptr)
-    this->clear_channel_->publish_state(clear_perc);
-  if (this->red_channel_ != nullptr)
-    this->red_channel_->publish_state(red_perc);
-  if (this->green_channel_ != nullptr)
-    this->green_channel_->publish_state(green_perc);
-  if (this->blue_channel_ != nullptr)
-    this->blue_channel_->publish_state(blue_perc);
+#ifdef USE_SENSOR
+  if (this->clear_sensor_ != nullptr)
+    this->clear_sensor_->publish_state(clear_perc);
+  if (this->red_sensor_ != nullptr)
+    this->red_sensor_->publish_state(red_perc);
+  if (this->green_sensor_ != nullptr)
+    this->green_sensor_->publish_state(green_perc);
+  if (this->blue_sensor_ != nullptr)
+    this->blue_sensor_->publish_state(blue_perc);
+#endif
 }
 void APDS9960::read_proximity_data_(uint8_t status) {
-  if (this->proximity_ == nullptr)
+#ifndef USE_SENSOR
+  return;
+#else
+  if (this->proximity_sensor_ == nullptr)
     return;
 
   if ((status & 0b10) == 0x00) {
@@ -204,7 +221,8 @@ void APDS9960::read_proximity_data_(uint8_t status) {
 
   float prox_perc = (prox / float(UINT8_MAX)) * 100.0f;
   ESP_LOGD(TAG, "Got proximity=%.1f%%", prox_perc);
-  this->proximity_->publish_state(prox_perc);
+  this->proximity_sensor_->publish_state(prox_perc);
+#endif
 }
 void APDS9960::read_gesture_data_() {
   if (!this->is_gesture_enabled_())
@@ -256,28 +274,29 @@ void APDS9960::read_gesture_data_() {
   }
 }
 void APDS9960::report_gesture_(int gesture) {
+#ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *bin;
   switch (gesture) {
     case 1:
-      bin = this->up_direction_;
+      bin = this->up_direction_binary_sensor_;
       this->gesture_up_started_ = false;
       this->gesture_down_started_ = false;
       ESP_LOGD(TAG, "Got gesture UP");
       break;
     case 2:
-      bin = this->down_direction_;
+      bin = this->down_direction_binary_sensor_;
       this->gesture_up_started_ = false;
       this->gesture_down_started_ = false;
       ESP_LOGD(TAG, "Got gesture DOWN");
       break;
     case 3:
-      bin = this->left_direction_;
+      bin = this->left_direction_binary_sensor_;
       this->gesture_left_started_ = false;
       this->gesture_right_started_ = false;
       ESP_LOGD(TAG, "Got gesture LEFT");
       break;
     case 4:
-      bin = this->right_direction_;
+      bin = this->right_direction_binary_sensor_;
       this->gesture_left_started_ = false;
       this->gesture_right_started_ = false;
       ESP_LOGD(TAG, "Got gesture RIGHT");
@@ -290,6 +309,7 @@ void APDS9960::report_gesture_(int gesture) {
     bin->publish_state(true);
     bin->publish_state(false);
   }
+#endif
 }
 void APDS9960::process_dataset_(int up, int down, int left, int right) {
   /* Algorithm: (see Figure 11 in datasheet)
@@ -365,10 +385,22 @@ void APDS9960::process_dataset_(int up, int down, int left, int right) {
   }
 }
 float APDS9960::get_setup_priority() const { return setup_priority::DATA; }
-bool APDS9960::is_proximity_enabled_() const { return this->proximity_ != nullptr || this->is_gesture_enabled_(); }
+bool APDS9960::is_proximity_enabled_() const {
+  return
+#ifdef USE_SENSOR
+      this->proximity_sensor_ != nullptr
+#else
+      false
+#endif
+      || this->is_gesture_enabled_();
+}
 bool APDS9960::is_gesture_enabled_() const {
-  return this->up_direction_ != nullptr || this->left_direction_ != nullptr || this->down_direction_ != nullptr ||
-         this->right_direction_ != nullptr;
+#ifdef USE_BINARY_SENSOR
+  return this->up_direction_binary_sensor_ != nullptr || this->left_direction_binary_sensor_ != nullptr ||
+         this->down_direction_binary_sensor_ != nullptr || this->right_direction_binary_sensor_ != nullptr;
+#else
+  return false;
+#endif
 }
 
 }  // namespace apds9960

@@ -36,6 +36,7 @@ class PIDAutotuner {
   // see also id_ below.
   void set_autotuner_id(std::string id) { this->id_ = "pid.autotune." + id; }
   const char *get_id() { return this->id_.c_str(); }
+  //  void set_autotuner_id(std::string id) { this->id_ = std::move(id); }
 
   void set_noiseband(float noiseband) {
     relay_function_.noiseband = noiseband;

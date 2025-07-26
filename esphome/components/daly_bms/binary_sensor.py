@@ -1,7 +1,8 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import binary_sensor
-from . import DalyBmsComponent, CONF_BMS_DALY_ID
+import esphome.config_validation as cv
+
+from . import CONF_BMS_DALY_ID, DalyBmsComponent
 
 CONF_CHARGING_MOS_ENABLED = "charging_mos_enabled"
 CONF_DISCHARGING_MOS_ENABLED = "discharging_mos_enabled"
@@ -27,9 +28,8 @@ CONFIG_SCHEMA = cv.All(
 
 
 async def setup_conf(config, key, hub):
-    if key in config:
-        conf = config[key]
-        var = await binary_sensor.new_binary_sensor(conf)
+    if sensor_config := config.get(key):
+        var = await binary_sensor.new_binary_sensor(sensor_config)
         cg.add(getattr(hub, f"set_{key}_binary_sensor")(var))
 
 

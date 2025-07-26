@@ -1,14 +1,19 @@
 import codecs
 from contextlib import suppress
-
+import ipaddress
 import logging
 import os
 from pathlib import Path
-from typing import Union
+import platform
+import re
 import tempfile
 from urllib.parse import urlparse
 
 _LOGGER = logging.getLogger(__name__)
+
+IS_MACOS = platform.system() == "Darwin"
+IS_WINDOWS = platform.system() == "Windows"
+IS_LINUX = platform.system() == "Linux"
 
 
 def ensure_unique_string(preferred_string, current_strings):
@@ -22,6 +27,53 @@ def ensure_unique_string(preferred_string, current_strings):
         test_string = f"{preferred_string}_{tries}"
 
     return test_string
+
+
+def fnv1a_32bit_hash(string: str) -> int:
+    """FNV-1a 32-bit hash function.
+
+    Note: This uses 32-bit hash instead of 64-bit for several reasons:
+    1. ESPHome targets 32-bit microcontrollers with limited RAM (often <320KB)
+    2. Using 64-bit hashes would double the RAM usage for storing IDs
+    3. 64-bit operations are slower on 32-bit processors
+
+    While there's a ~50% collision probability at ~77,000 unique IDs,
+    ESPHome validates for collisions at compile time, preventing any
+    runtime issues. In practice, most ESPHome installations only have
+    a handful of area_ids and device_ids (typically <10 areas and <100
+    devices), making collisions virtually impossible.
+    """
+    hash_value = 2166136261
+    for char in string:
+        hash_value ^= ord(char)
+        hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+    return hash_value
+
+
+def strip_accents(value: str) -> str:
+    """Remove accents from a string."""
+    import unicodedata
+
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFD", str(value))
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def slugify(value: str) -> str:
+    """Convert a string to a valid C++ identifier slug."""
+    from esphome.const import ALLOWED_NAME_CHARS
+
+    value = (
+        strip_accents(value)
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("__", "_")
+        .strip("_")
+    )
+    return "".join(c for c in value if c in ALLOWED_NAME_CHARS)
 
 
 def indent_all_but_first_and_last(text, padding="  "):
@@ -44,9 +96,7 @@ def cpp_string_escape(string, encoding="utf-8"):
     def _should_escape(byte: int) -> bool:
         if not 32 <= byte < 127:
             return True
-        if byte in (ord("\\"), ord('"')):
-            return True
-        return False
+        return byte in (ord("\\"), ord('"'))
 
     if isinstance(string, str):
         string = string.encode(encoding)
@@ -86,12 +136,8 @@ def mkdir_p(path):
 
 
 def is_ip_address(host):
-    parts = host.split(".")
-    if len(parts) != 4:
-        return False
     try:
-        for p in parts:
-            int(p)
+        ipaddress.ip_address(host)
         return True
     except ValueError:
         return False
@@ -122,28 +168,138 @@ def _resolve_with_zeroconf(host):
     return info
 
 
-def resolve_ip_address(host):
-    from esphome.core import EsphomeError
+def addr_preference_(res):
+    # Trivial alternative to RFC6724 sorting. Put sane IPv6 first, then
+    # Legacy IP, then IPv6 link-local addresses without an actual link.
+    sa = res[4]
+    ip = ipaddress.ip_address(sa[0])
+    if ip.version == 4:
+        return 2
+    if ip.is_link_local and sa[3] == 0:
+        return 3
+    return 1
+
+
+def resolve_ip_address(host, port):
     import socket
 
+    from esphome.core import EsphomeError
+
+    # There are five cases here. The host argument could be one of:
+    #  • a *list* of IP addresses discovered by MQTT,
+    #  • a single IP address specified by the user,
+    #  • a .local hostname to be resolved by mDNS,
+    #  • a normal hostname to be resolved in DNS, or
+    #  • A URL from which we should extract the hostname.
+    #
+    # In each of the first three cases, we end up with IP addresses in
+    # string form which need to be converted to a 5-tuple to be used
+    # for the socket connection attempt. The easiest way to construct
+    # those is to pass the IP address string to getaddrinfo(). Which,
+    # coincidentally, is how we do hostname lookups in the other cases
+    # too. So first build a list which contains either IP addresses or
+    # a single hostname, then call getaddrinfo() on each element of
+    # that list.
+
     errs = []
+    if isinstance(host, list):
+        addr_list = host
+    elif is_ip_address(host):
+        addr_list = [host]
+    else:
+        url = urlparse(host)
+        if url.scheme != "":
+            host = url.hostname
 
-    if host.endswith(".local"):
+        addr_list = []
+        if host.endswith(".local"):
+            try:
+                _LOGGER.info("Resolving IP address of %s in mDNS", host)
+                addr_list = _resolve_with_zeroconf(host)
+            except EsphomeError as err:
+                errs.append(str(err))
+
+        # If not mDNS, or if mDNS failed, use normal DNS
+        if not addr_list:
+            addr_list = [host]
+
+    # Now we have a list containing either IP addresses or a hostname
+    res = []
+    for addr in addr_list:
+        if not is_ip_address(addr):
+            _LOGGER.info("Resolving IP address of %s", host)
         try:
-            return _resolve_with_zeroconf(host)
-        except EsphomeError as err:
+            r = socket.getaddrinfo(addr, port, proto=socket.IPPROTO_TCP)
+        except OSError as err:
             errs.append(str(err))
+            raise EsphomeError(
+                f"Error resolving IP address: {', '.join(errs)}"
+            ) from err
 
-    try:
-        host_url = host if (urlparse(host).scheme != "") else "http://" + host
-        return socket.gethostbyname(urlparse(host_url).hostname)
-    except OSError as err:
-        errs.append(str(err))
-        raise EsphomeError(f"Error resolving IP address: {', '.join(errs)}") from err
+        res = res + r
+
+    # Zeroconf tends to give us link-local IPv6 addresses without specifying
+    # the link. Put those last in the list to be attempted.
+    res.sort(key=addr_preference_)
+    return res
+
+
+def sort_ip_addresses(address_list: list[str]) -> list[str]:
+    """Takes a list of IP addresses in string form, e.g. from mDNS or MQTT,
+    and sorts them into the best order to actually try connecting to them.
+
+    This is roughly based on RFC6724 but a lot simpler: First we choose
+    IPv6 addresses, then Legacy IP addresses, and lowest priority is
+    link-local IPv6 addresses that don't have a link specified (which
+    are useless, but mDNS does provide them in that form). Addresses
+    which cannot be parsed are silently dropped.
+    """
+    import socket
+
+    # First "resolve" all the IP addresses to getaddrinfo() tuples of the form
+    # (family, type, proto, canonname, sockaddr)
+    res: list[
+        tuple[
+            int,
+            int,
+            int,
+            str | None,
+            tuple[str, int] | tuple[str, int, int, int],
+        ]
+    ] = []
+    for addr in address_list:
+        # This should always work as these are supposed to be IP addresses
+        try:
+            res += socket.getaddrinfo(
+                addr, 0, proto=socket.IPPROTO_TCP, flags=socket.AI_NUMERICHOST
+            )
+        except OSError:
+            _LOGGER.info("Failed to parse IP address '%s'", addr)
+
+    # Now use that information to sort them.
+    res.sort(key=addr_preference_)
+
+    # Finally, turn the getaddrinfo() tuples back into plain hostnames.
+    return [socket.getnameinfo(r[4], socket.NI_NUMERICHOST)[0] for r in res]
 
 
 def get_bool_env(var, default=False):
-    return bool(os.getenv(var, default))
+    value = os.getenv(var, default)
+    if isinstance(value, str):
+        value = value.lower()
+        if value in ["1", "true"]:
+            return True
+        if value in ["0", "false"]:
+            return False
+    return bool(value)
+
+
+def get_str_env(var, default=None):
+    return str(os.getenv(var, default))
+
+
+def get_int_env(var, default=0):
+    return int(os.getenv(var, default))
 
 
 def is_ha_addon():
@@ -170,7 +326,7 @@ def read_file(path):
         raise EsphomeError(f"Error reading file {path}: {err}") from err
 
 
-def _write_file(path: Union[Path, str], text: Union[str, bytes]):
+def _write_file(path: Path | str, text: str | bytes):
     """Atomically writes `text` to the given path.
 
     Automatically creates all parent directories.
@@ -203,7 +359,7 @@ def _write_file(path: Union[Path, str], text: Union[str, bytes]):
                 _LOGGER.error("Write file cleanup failed: %s", err)
 
 
-def write_file(path: Union[Path, str], text: str):
+def write_file(path: Path | str, text: str):
     try:
         _write_file(path, text)
     except OSError as err:
@@ -212,7 +368,7 @@ def write_file(path: Union[Path, str], text: str):
         raise EsphomeError(f"Could not write file at {path}") from err
 
 
-def write_file_if_changed(path: Union[Path, str], text: str) -> bool:
+def write_file_if_changed(path: Path | str, text: str) -> bool:
     """Write text to the given path, but not if the contents match already.
 
     Returns true if the file was changed.
@@ -334,3 +490,16 @@ def add_class_to_obj(value, cls):
             if type(value) is type_:  # pylint: disable=unidiomatic-typecheck
                 return add_class_to_obj(func(value), cls)
         raise
+
+
+def snake_case(value):
+    """Same behaviour as `helpers.cpp` method `str_snake_case`."""
+    return value.replace(" ", "_").lower()
+
+
+_DISALLOWED_CHARS = re.compile(r"[^a-zA-Z0-9-_]")
+
+
+def sanitize(value):
+    """Same behaviour as `helpers.cpp` method `str_sanitize`."""
+    return _DISALLOWED_CHARS.sub("_", value)

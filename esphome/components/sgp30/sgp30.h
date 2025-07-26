@@ -4,6 +4,8 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/sensirion_common/i2c_sensirion.h"
 #include "esphome/core/preferences.h"
+
+#include <cinttypes>
 #include <cmath>
 
 namespace esphome {
@@ -30,7 +32,6 @@ class SGP30Component : public PollingComponent, public sensirion_common::Sensiri
   void setup() override;
   void update() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
  protected:
   void send_env_data_();

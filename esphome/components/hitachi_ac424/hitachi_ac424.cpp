@@ -12,7 +12,7 @@ void set_bits(uint8_t *const dst, const uint8_t offset, const uint8_t nbits, con
   uint8_t mask = UINT8_MAX >> (8 - ((nbits > 8) ? 8 : nbits));
   // Calculate the mask & clear the space for the data.
   // Clear the destination bits.
-  *dst &= ~(uint8_t)(mask << offset);
+  *dst &= ~(uint8_t) (mask << offset);
   // Merge in the data.
   *dst |= ((data & mask) << offset);
 }
@@ -133,8 +133,10 @@ bool HitachiClimate::get_swing_v_() {
 }
 
 void HitachiClimate::set_swing_h_(uint8_t position) {
-  if (position > HITACHI_AC424_SWINGH_LEFT_MAX)
-    return set_swing_h_(HITACHI_AC424_SWINGH_MIDDLE);
+  if (position > HITACHI_AC424_SWINGH_LEFT_MAX) {
+    set_swing_h_(HITACHI_AC424_SWINGH_MIDDLE);
+    return;
+  }
   set_bits(&remote_state_[HITACHI_AC424_SWINGH_BYTE], HITACHI_AC424_SWINGH_OFFSET, HITACHI_AC424_SWINGH_SIZE, position);
   set_button_(HITACHI_AC424_BUTTON_SWINGH);
 }

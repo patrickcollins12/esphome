@@ -2,11 +2,18 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/entity_base.h"
-#include "esphome/core/preferences.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/preferences.h"
 
 namespace esphome {
 namespace switch_ {
+
+#define SUB_SWITCH(name) \
+ protected: \
+  switch_::Switch *name##_switch_{nullptr}; \
+\
+ public: \
+  void set_##name##_switch(switch_::Switch *s) { this->name##_switch_ = s; }
 
 // bit0: on/off. bit1: persistent. bit2: inverted. bit3: disabled
 const int RESTORE_MODE_ON_MASK = 0x01;
@@ -14,7 +21,7 @@ const int RESTORE_MODE_PERSISTENT_MASK = 0x02;
 const int RESTORE_MODE_INVERTED_MASK = 0x04;
 const int RESTORE_MODE_DISABLED_MASK = 0x08;
 
-enum SwitchRestoreMode {
+enum SwitchRestoreMode : uint8_t {
   SWITCH_ALWAYS_OFF = !RESTORE_MODE_ON_MASK,
   SWITCH_ALWAYS_ON = RESTORE_MODE_ON_MASK,
   SWITCH_RESTORE_DEFAULT_OFF = RESTORE_MODE_PERSISTENT_MASK,
@@ -29,10 +36,9 @@ enum SwitchRestoreMode {
  * A switch is basically just a combination of a binary sensor (for reporting switch values)
  * and a write_state method that writes a state to the hardware.
  */
-class Switch : public EntityBase {
+class Switch : public EntityBase, public EntityBase_DeviceClass {
  public:
   explicit Switch();
-  explicit Switch(const std::string &name);
 
   /** Publish a state to the front-end from the back-end.
    *
@@ -43,11 +49,11 @@ class Switch : public EntityBase {
    */
   void publish_state(bool state);
 
-  /// The current reported state of the binary sensor.
-  bool state;
-
   /// Indicates whether or not state is to be retrieved from flash and how
   SwitchRestoreMode restore_mode{SWITCH_RESTORE_DEFAULT_OFF};
+
+  /// The current reported state of the binary sensor.
+  bool state;
 
   /** Turn this switch on. This is called by the front-end.
    *
@@ -104,10 +110,6 @@ class Switch : public EntityBase {
 
   bool is_inverted() const;
 
-  /// Get the device class for this switch.
-  std::string get_device_class();
-  /// Set the Home Assistant device class for this switch.
-  void set_device_class(const std::string &device_class);
   void set_restore_mode(SwitchRestoreMode restore_mode) { this->restore_mode = restore_mode; }
 
  protected:
@@ -121,11 +123,16 @@ class Switch : public EntityBase {
    */
   virtual void write_state(bool state) = 0;
 
-  CallbackManager<void(bool)> state_callback_{};
-  bool inverted_{false};
-  Deduplicator<bool> publish_dedup_;
+  // Pointer first (4 bytes)
   ESPPreferenceObject rtc_;
-  optional<std::string> device_class_;
+
+  // CallbackManager (12 bytes on 32-bit - contains vector)
+  CallbackManager<void(bool)> state_callback_{};
+
+  // Small types grouped together
+  Deduplicator<bool> publish_dedup_;  // 2 bytes (bool has_value_ + bool last_value_)
+  bool inverted_{false};              // 1 byte
+  // Total: 3 bytes, 1 byte padding
 };
 
 #define LOG_SWITCH(prefix, type, obj) log_switch((TAG), (prefix), LOG_STR_LITERAL(type), (obj))

@@ -14,6 +14,16 @@ void PIDClimate::setup() {
     this->update_pid_();
   });
   this->current_temperature = this->sensor_->state;
+
+  // register for humidity values and get initial state
+  if (this->humidity_sensor_ != nullptr) {
+    this->humidity_sensor_->add_on_state_callback([this](float state) {
+      this->current_humidity = state;
+      this->publish_state();
+    });
+    this->current_humidity = this->humidity_sensor_->state;
+  }
+
   // restore set points
   auto restore = this->restore_state_();
   if (restore.has_value()) {
@@ -47,6 +57,9 @@ climate::ClimateTraits PIDClimate::traits() {
   traits.set_supports_current_temperature(true);
   traits.set_supports_two_point_target_temperature(false);
 
+  if (this->humidity_sensor_ != nullptr)
+    traits.set_supports_current_humidity(true);
+
   traits.set_supported_modes({climate::CLIMATE_MODE_OFF});
   if (supports_cool_())
     traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
@@ -60,15 +73,18 @@ climate::ClimateTraits PIDClimate::traits() {
 }
 void PIDClimate::dump_config() {
   LOG_CLIMATE("", "PID Climate", this);
-  ESP_LOGCONFIG(TAG, "  Control Parameters:");
-  ESP_LOGCONFIG(TAG, "    kp: %.5f, ki: %.5f, kd: %.5f, output samples: %d", controller_.kp_, controller_.ki_,
-                controller_.kd_, controller_.output_samples_);
+  ESP_LOGCONFIG(TAG,
+                "  Control Parameters:\n"
+                "    kp: %.5f, ki: %.5f, kd: %.5f, output samples: %d",
+                controller_.kp_, controller_.ki_, controller_.kd_, controller_.output_samples_);
 
   if (controller_.threshold_low_ == 0 && controller_.threshold_high_ == 0) {
     ESP_LOGCONFIG(TAG, "  Deadband disabled.");
   } else {
-    ESP_LOGCONFIG(TAG, "  Deadband Parameters:");
-    ESP_LOGCONFIG(TAG, "    threshold: %0.5f to %0.5f, multipliers(kp: %.5f, ki: %.5f, kd: %.5f), output samples: %d",
+    ESP_LOGCONFIG(TAG,
+                  "  Deadband Parameters:\n"
+                  "    threshold: %0.5f to %0.5f, multipliers(kp: %.5f, ki: %.5f, kd: %.5f), "
+                  "output samples: %d",
                   controller_.threshold_low_, controller_.threshold_high_, controller_.kp_multiplier_,
                   controller_.ki_multiplier_, controller_.kd_multiplier_, controller_.deadband_output_samples_);
   }
@@ -165,8 +181,9 @@ void PIDClimate::start_autotune(std::unique_ptr<pid_shared::PIDAutotuner> &&auto
   });
 
   if (mode != climate::CLIMATE_MODE_HEAT_COOL) {
-    ESP_LOGW(TAG2.c_str(), "!!! For PID autotuner you need to set AUTO (also called heat/cool) mode! %s",
-             this->get_name().c_str());
+    ESP_LOGW(TAG, "%s: !!! For PID autotuner you need to set AUTO (also called heat/cool) mode!",
+             this->get_object_id().c_str());
+    //             this->get_name().c_str());
   }
 }
 

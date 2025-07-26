@@ -1,30 +1,32 @@
 #pragma once
 
-#include "esphome/core/log.h"
 #include "esphome/core/component.h"
 #include "esphome/core/entity_base.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 #include "esphome/components/sensor/filter.h"
 
 #include <vector>
+#include <memory>
 
 namespace esphome {
 namespace sensor {
 
 #define LOG_SENSOR(prefix, type, obj) \
   if ((obj) != nullptr) { \
-    ESP_LOGCONFIG(TAG, "%s%s '%s'", prefix, LOG_STR_LITERAL(type), (obj)->get_name().c_str()); \
+    ESP_LOGCONFIG(TAG, \
+                  "%s%s '%s'\n" \
+                  "%s  State Class: '%s'\n" \
+                  "%s  Unit of Measurement: '%s'\n" \
+                  "%s  Accuracy Decimals: %d", \
+                  prefix, LOG_STR_LITERAL(type), (obj)->get_name().c_str(), prefix, \
+                  state_class_to_string((obj)->get_state_class()).c_str(), prefix, \
+                  (obj)->get_unit_of_measurement().c_str(), prefix, (obj)->get_accuracy_decimals()); \
     if (!(obj)->get_device_class().empty()) { \
       ESP_LOGCONFIG(TAG, "%s  Device Class: '%s'", prefix, (obj)->get_device_class().c_str()); \
     } \
-    ESP_LOGCONFIG(TAG, "%s  State Class: '%s'", prefix, state_class_to_string((obj)->get_state_class()).c_str()); \
-    ESP_LOGCONFIG(TAG, "%s  Unit of Measurement: '%s'", prefix, (obj)->get_unit_of_measurement().c_str()); \
-    ESP_LOGCONFIG(TAG, "%s  Accuracy Decimals: %d", prefix, (obj)->get_accuracy_decimals()); \
     if (!(obj)->get_icon().empty()) { \
       ESP_LOGCONFIG(TAG, "%s  Icon: '%s'", prefix, (obj)->get_icon().c_str()); \
-    } \
-    if (!(obj)->unique_id().empty()) { \
-      ESP_LOGV(TAG, "%s  Unique ID: '%s'", prefix, (obj)->unique_id().c_str()); \
     } \
     if ((obj)->get_force_update()) { \
       ESP_LOGV(TAG, "%s  Force Update: YES", prefix); \
@@ -54,25 +56,14 @@ std::string state_class_to_string(StateClass state_class);
  *
  * A sensor has unit of measurement and can use publish_state to send out a new value with the specified accuracy.
  */
-class Sensor : public EntityBase {
+class Sensor : public EntityBase, public EntityBase_DeviceClass, public EntityBase_UnitOfMeasurement {
  public:
   explicit Sensor();
-  explicit Sensor(const std::string &name);
-
-  /// Get the unit of measurement, using the manual override if set.
-  std::string get_unit_of_measurement();
-  /// Manually set the unit of measurement.
-  void set_unit_of_measurement(const std::string &unit_of_measurement);
 
   /// Get the accuracy in decimals, using the manual override if set.
   int8_t get_accuracy_decimals();
   /// Manually set the accuracy in decimals.
   void set_accuracy_decimals(int8_t accuracy_decimals);
-
-  /// Get the device class, using the manual override if set.
-  std::string get_device_class();
-  /// Manually set the device class.
-  void set_device_class(const std::string &device_class);
 
   /// Get the state class, using the manual override if set.
   StateClass get_state_class();
@@ -86,9 +77,9 @@ class Sensor : public EntityBase {
    * state changes to the database when they are published, even if the state is the
    * same as before.
    */
-  bool get_force_update() const { return force_update_; }
+  bool get_force_update() const { return sensor_flags_.force_update; }
   /// Set force update mode.
-  void set_force_update(bool force_update) { force_update_ = force_update; }
+  void set_force_update(bool force_update) { sensor_flags_.force_update = force_update; }
 
   /// Add a filter to the filter chain. Will be appended to the back.
   void add_filter(Filter *filter);
@@ -147,54 +138,25 @@ class Sensor : public EntityBase {
    */
   float raw_state;
 
-  /// Return whether this sensor has gotten a full state (that passed through all filters) yet.
-  bool has_state() const;
-
-  /** A unique ID for this sensor, empty for no unique id. See unique ID requirements:
-   * https://developers.home-assistant.io/docs/en/entity_registry_index.html#unique-id-requirements
-   *
-   * @return The unique id as a string.
-   */
-  virtual std::string unique_id();
-
   void internal_send_state_to_frontend(float state);
 
  protected:
-  /** Override this to set the default unit of measurement.
-   *
-   * @deprecated This method is deprecated, set the property during config validation instead. (2022.1)
-   */
-  virtual std::string unit_of_measurement();  // NOLINT
+  std::unique_ptr<CallbackManager<void(float)>> raw_callback_;  ///< Storage for raw state callbacks (lazy allocated).
+  CallbackManager<void(float)> callback_;                       ///< Storage for filtered state callbacks.
 
-  /** Override this to set the default accuracy in decimals.
-   *
-   * @deprecated This method is deprecated, set the property during config validation instead. (2022.1)
-   */
-  virtual int8_t accuracy_decimals();  // NOLINT
-
-  /** Override this to set the default device class.
-   *
-   * @deprecated This method is deprecated, set the property during config validation instead. (2022.1)
-   */
-  virtual std::string device_class();  // NOLINT
-
-  /** Override this to set the default state class.
-   *
-   * @deprecated This method is deprecated, set the property during config validation instead. (2022.1)
-   */
-  virtual StateClass state_class();  // NOLINT
-
-  CallbackManager<void(float)> raw_callback_;  ///< Storage for raw state callbacks.
-  CallbackManager<void(float)> callback_;      ///< Storage for filtered state callbacks.
-
-  bool has_state_{false};
   Filter *filter_list_{nullptr};  ///< Store all active filters.
 
-  optional<std::string> unit_of_measurement_;           ///< Unit of measurement override
-  optional<int8_t> accuracy_decimals_;                  ///< Accuracy in decimals override
-  optional<std::string> device_class_;                  ///< Device class override
-  optional<StateClass> state_class_{STATE_CLASS_NONE};  ///< State class override
-  bool force_update_{false};                            ///< Force update mode
+  // Group small members together to avoid padding
+  int8_t accuracy_decimals_{-1};              ///< Accuracy in decimals (-1 = not set)
+  StateClass state_class_{STATE_CLASS_NONE};  ///< State class (STATE_CLASS_NONE = not set)
+
+  // Bit-packed flags for sensor-specific settings
+  struct SensorFlags {
+    uint8_t has_accuracy_override : 1;
+    uint8_t has_state_class_override : 1;
+    uint8_t force_update : 1;
+    uint8_t reserved : 5;  // Reserved for future use
+  } sensor_flags_{};
 };
 
 }  // namespace sensor

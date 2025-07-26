@@ -1,8 +1,11 @@
 #ifdef USE_ARDUINO
 
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "air_conditioner.h"
 #include "ac_adapter.h"
+#include <cmath>
+#include <cstdint>
 
 namespace esphome {
 namespace midea {
@@ -84,26 +87,28 @@ ClimateTraits AirConditioner::traits() {
   traits.set_supported_custom_presets(this->supported_custom_presets_);
   traits.set_supported_custom_fan_modes(this->supported_custom_fan_modes_);
   /* + MINIMAL SET OF CAPABILITIES */
-  traits.add_supported_mode(ClimateMode::CLIMATE_MODE_OFF);
-  traits.add_supported_mode(ClimateMode::CLIMATE_MODE_FAN_ONLY);
   traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_AUTO);
   traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_LOW);
   traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_MEDIUM);
   traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_HIGH);
-  traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_OFF);
-  traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_VERTICAL);
-  traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_NONE);
-  traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_SLEEP);
   if (this->base_.getAutoconfStatus() == dudanov::midea::AUTOCONF_OK)
     Converters::to_climate_traits(traits, this->base_.getCapabilities());
+  if (!traits.get_supported_modes().empty())
+    traits.add_supported_mode(ClimateMode::CLIMATE_MODE_OFF);
+  if (!traits.get_supported_swing_modes().empty())
+    traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_OFF);
+  if (!traits.get_supported_presets().empty())
+    traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_NONE);
   return traits;
 }
 
 void AirConditioner::dump_config() {
-  ESP_LOGCONFIG(Constants::TAG, "MideaDongle:");
-  ESP_LOGCONFIG(Constants::TAG, "  [x] Period: %dms", this->base_.getPeriod());
-  ESP_LOGCONFIG(Constants::TAG, "  [x] Response timeout: %dms", this->base_.getTimeout());
-  ESP_LOGCONFIG(Constants::TAG, "  [x] Request attempts: %d", this->base_.getNumAttempts());
+  ESP_LOGCONFIG(Constants::TAG,
+                "MideaDongle:\n"
+                "  [x] Period: %dms\n"
+                "  [x] Response timeout: %dms\n"
+                "  [x] Request attempts: %d",
+                this->base_.getPeriod(), this->base_.getTimeout(), this->base_.getNumAttempts());
 #ifdef USE_REMOTE_TRANSMITTER
   ESP_LOGCONFIG(Constants::TAG, "  [x] Using RemoteTransmitter");
 #endif
@@ -119,9 +124,24 @@ void AirConditioner::dump_config() {
 
 /* ACTIONS */
 
-void AirConditioner::do_follow_me(float temperature, bool beeper) {
+void AirConditioner::do_follow_me(float temperature, bool use_fahrenheit, bool beeper) {
 #ifdef USE_REMOTE_TRANSMITTER
-  IrFollowMeData data(static_cast<uint8_t>(lroundf(temperature)), beeper);
+  // Check if temperature is finite (not NaN or infinite)
+  if (!std::isfinite(temperature)) {
+    ESP_LOGW(Constants::TAG, "Follow me action requires a finite temperature, got: %f", temperature);
+    return;
+  }
+
+  // Round and convert temperature to long, then clamp and convert it to uint8_t
+  uint8_t temp_uint8 =
+      static_cast<uint8_t>(esphome::clamp<long>(std::lroundf(temperature), 0L, static_cast<long>(UINT8_MAX)));
+
+  char temp_symbol = use_fahrenheit ? 'F' : 'C';
+  ESP_LOGD(Constants::TAG, "Follow me action called with temperature: %.5f °%c, rounded to: %u °%c", temperature,
+           temp_symbol, temp_uint8, temp_symbol);
+
+  // Create and transmit the data
+  IrFollowMeData data(temp_uint8, use_fahrenheit, beeper);
   this->transmitter_.transmit(data);
 #else
   ESP_LOGW(Constants::TAG, "Action needs remote_transmitter component");

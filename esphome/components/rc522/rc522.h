@@ -19,12 +19,12 @@ class RC522 : public PollingComponent {
   void dump_config() override;
 
   void update() override;
-  float get_setup_priority() const override { return setup_priority::DATA; };
 
   void loop() override;
 
   void register_tag(RC522BinarySensor *tag) { this->binary_sensors_.push_back(tag); }
-  void register_trigger(RC522Trigger *trig) { this->triggers_.push_back(trig); }
+  void register_ontag_trigger(RC522Trigger *trig) { this->triggers_ontag_.push_back(trig); }
+  void register_ontagremoved_trigger(RC522Trigger *trig) { this->triggers_ontagremoved_.push_back(trig); }
 
   void set_reset_pin(GPIOPin *reset) { this->reset_pin_ = reset; }
 
@@ -242,7 +242,8 @@ class RC522 : public PollingComponent {
   uint8_t reset_count_{0};
   uint32_t reset_timeout_{0};
   std::vector<RC522BinarySensor *> binary_sensors_;
-  std::vector<RC522Trigger *> triggers_;
+  std::vector<RC522Trigger *> triggers_ontag_;
+  std::vector<RC522Trigger *> triggers_ontagremoved_;
   std::vector<uint8_t> current_uid_;
 
   enum RC522Error {

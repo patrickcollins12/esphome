@@ -1,7 +1,11 @@
 #pragma once
 
+#include "log_const_en.h"
+
 #include <cassert>
 #include <cstdarg>
+// for PRIu32 and friends
+#include <cinttypes>
 #include <string>
 
 #ifdef USE_STORE_LOG_STR_IN_FLASH
@@ -16,6 +20,9 @@
 #endif
 #ifdef USE_ESP32_FRAMEWORK_ARDUINO
 #include <esp32-hal-log.h>
+#endif
+#ifdef USE_LIBRETINY
+#include <lt_logger.h>
 #endif
 
 namespace esphome {
@@ -71,7 +78,7 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERY_VERBOSE
 #define esph_log_vv(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_VERY_VERBOSE, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_VERY_VERBOSE, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_VERY_VERBOSE
 #else
@@ -80,7 +87,7 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
 #define esph_log_v(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_VERBOSE, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_VERBOSE, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_VERBOSE
 #else
@@ -89,9 +96,9 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_DEBUG
 #define esph_log_d(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_DEBUG, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_DEBUG, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 #define esph_log_config(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_CONFIG, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_CONFIG, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_DEBUG
 #define ESPHOME_LOG_HAS_CONFIG
@@ -102,7 +109,7 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_INFO
 #define esph_log_i(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_INFO
 #else
@@ -111,7 +118,7 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_WARN
 #define esph_log_w(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_WARN, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_WARN, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_WARN
 #else
@@ -120,7 +127,7 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_ERROR
 #define esph_log_e(tag, format, ...) \
-  esp_log_printf_(ESPHOME_LOG_LEVEL_ERROR, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
+  ::esphome::esp_log_printf_(ESPHOME_LOG_LEVEL_ERROR, tag, __LINE__, ESPHOME_LOG_FORMAT(format), ##__VA_ARGS__)
 
 #define ESPHOME_LOG_HAS_ERROR
 #else
@@ -144,19 +151,12 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 #endif
 
 #define ESP_LOGE(tag, ...) esph_log_e(tag, __VA_ARGS__)
-#define LOG_E(tag, ...) ESP_LOGE(tag, __VA__ARGS__)
 #define ESP_LOGW(tag, ...) esph_log_w(tag, __VA_ARGS__)
-#define LOG_W(tag, ...) ESP_LOGW(tag, __VA__ARGS__)
 #define ESP_LOGI(tag, ...) esph_log_i(tag, __VA_ARGS__)
-#define LOG_I(tag, ...) ESP_LOGI(tag, __VA__ARGS__)
 #define ESP_LOGD(tag, ...) esph_log_d(tag, __VA_ARGS__)
-#define LOG_D(tag, ...) ESP_LOGD(tag, __VA__ARGS__)
 #define ESP_LOGCONFIG(tag, ...) esph_log_config(tag, __VA_ARGS__)
-#define LOG_CONFIG(tag, ...) ESP_LOGCONFIG(tag, __VA__ARGS__)
 #define ESP_LOGV(tag, ...) esph_log_v(tag, __VA_ARGS__)
-#define LOG_V(tag, ...) ESP_LOGV(tag, __VA__ARGS__)
 #define ESP_LOGVV(tag, ...) esph_log_vv(tag, __VA_ARGS__)
-#define LOG_VV(tag, ...) ESP_LOGVV(tag, __VA__ARGS__)
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte) \
@@ -165,6 +165,8 @@ int esp_idf_log_vprintf_(const char *format, va_list args);  // NOLINT
 #define YESNO(b) ((b) ? "YES" : "NO")
 #define ONOFF(b) ((b) ? "ON" : "OFF")
 #define TRUEFALSE(b) ((b) ? "TRUE" : "FALSE")
+// for use with optional values
+#define ONOFFMAYBE(b) (((b).has_value()) ? ONOFF((b).value()) : "UNKNOWN")
 
 // Helper class that identifies strings that may be stored in flash storage (similar to Arduino's __FlashStringHelper)
 struct LogString;
@@ -174,7 +176,7 @@ struct LogString;
 #include <pgmspace.h>
 
 #if USE_ARDUINO_VERSION_CODE >= VERSION_CODE(2, 5, 0)
-#define LOG_STR_ARG(s) ((PGM_P)(s))
+#define LOG_STR_ARG(s) ((PGM_P) (s))
 #else
 // Pre-Arduino 2.5, we can't pass a PSTR() to printf(). Emulate support by copying the message to a
 // local buffer first. String length is limited to 63 characters.
@@ -183,7 +185,7 @@ struct LogString;
   ({ \
     char __buf[64]; \
     __buf[63] = '\0'; \
-    strncpy_P(__buf, (PGM_P)(s), 63); \
+    strncpy_P(__buf, (PGM_P) (s), 63); \
     __buf; \
   })
 #endif

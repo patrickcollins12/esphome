@@ -4,6 +4,8 @@
 #include "esphome/core/defines.h"
 #include "esphome/components/ble_client/ble_client.h"
 
+#include <cinttypes>
+
 #ifdef USE_ESP32
 #include <esp_gattc_api.h>
 #ifdef USE_TIME
@@ -36,8 +38,6 @@ class PVVXDisplay : public ble_client::BLEClientNode, public PollingComponent {
   void set_disconnect_delay(uint32_t ms) { this->disconnect_delay_ms_ = ms; }
 
   void dump_config() override;
-
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
   void update() override;
 

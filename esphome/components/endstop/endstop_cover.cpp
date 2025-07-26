@@ -1,6 +1,7 @@
 #include "endstop_cover.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/application.h"
 
 namespace esphome {
 namespace endstop {
@@ -11,6 +12,7 @@ using namespace esphome::cover;
 
 CoverTraits EndstopCover::get_traits() {
   auto traits = CoverTraits();
+  traits.set_supports_stop(true);
   traits.set_supports_position(true);
   traits.set_supports_toggle(true);
   traits.set_is_assumed_state(false);
@@ -64,7 +66,7 @@ void EndstopCover::loop() {
   if (this->current_operation == COVER_OPERATION_IDLE)
     return;
 
-  const uint32_t now = millis();
+  const uint32_t now = App.get_loop_component_start_time();
 
   if (this->current_operation == COVER_OPERATION_OPENING && this->is_open_()) {
     float dur = (now - this->start_dir_time_) / 1e3f;

@@ -1,8 +1,8 @@
 #include "tm1638.h"
 #include "sevenseg.h"
-#include "esphome/core/log.h"
-#include "esphome/core/helpers.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace tm1638 {
@@ -20,8 +20,6 @@ static const uint8_t TM1638_UNKNOWN_CHAR = 0b11111111;
 static const uint8_t TM1638_SHIFT_DELAY = 4;  // clock pause between commands, default 4ms
 
 void TM1638Component::setup() {
-  ESP_LOGD(TAG, "Setting up TM1638...");
-
   this->clk_pin_->setup();  // OUTPUT
   this->dio_pin_->setup();  // OUTPUT
   this->stb_pin_->setup();  // OUTPUT
@@ -43,8 +41,10 @@ void TM1638Component::setup() {
 }
 
 void TM1638Component::dump_config() {
-  ESP_LOGCONFIG(TAG, "TM1638:");
-  ESP_LOGCONFIG(TAG, "  Intensity: %u", this->intensity_);
+  ESP_LOGCONFIG(TAG,
+                "TM1638:\n"
+                "  Intensity: %u",
+                this->intensity_);
   LOG_PIN("  CLK Pin: ", this->clk_pin_);
   LOG_PIN("  DIO Pin: ", this->dio_pin_);
   LOG_PIN("  STB Pin: ", this->stb_pin_);
@@ -140,7 +140,7 @@ void TM1638Component::set_intensity(uint8_t brightness_level) {
   this->send_command_(TM1638_REGISTER_FIXEDADDRESS);
 
   if (brightness_level > 0) {
-    this->send_command_((uint8_t)(TM1638_REGISTER_DISPLAYON | intensity_));
+    this->send_command_((uint8_t) (TM1638_REGISTER_DISPLAYON | intensity_));
   } else {
     this->send_command_(TM1638_REGISTER_DISPLAYOFF);
   }
@@ -211,16 +211,14 @@ uint8_t TM1638Component::printf(const char *format, ...) {
   return 0;
 }
 
-#ifdef USE_TIME
-uint8_t TM1638Component::strftime(uint8_t pos, const char *format, time::ESPTime time) {
+uint8_t TM1638Component::strftime(uint8_t pos, const char *format, ESPTime time) {
   char buffer[64];
   size_t ret = time.strftime(buffer, sizeof(buffer), format);
   if (ret > 0)
     return this->print(pos, buffer);
   return 0;
 }
-uint8_t TM1638Component::strftime(const char *format, time::ESPTime time) { return this->strftime(0, format, time); }
-#endif
+uint8_t TM1638Component::strftime(const char *format, ESPTime time) { return this->strftime(0, format, time); }
 
 //////////////// SPI   ////////////////
 

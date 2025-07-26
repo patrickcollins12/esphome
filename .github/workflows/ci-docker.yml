@@ -2,46 +2,54 @@
 name: CI for docker images
 
 # Only run when docker paths change
-# yamllint disable-line rule:truthy
+
 on:
   push:
     branches: [dev, beta, release]
     paths:
       - "docker/**"
-      - ".github/workflows/**"
+      - ".github/workflows/ci-docker.yml"
       - "requirements*.txt"
       - "platformio.ini"
+      - "script/platformio_install_deps.py"
 
   pull_request:
     paths:
       - "docker/**"
-      - ".github/workflows/**"
+      - ".github/workflows/ci-docker.yml"
       - "requirements*.txt"
       - "platformio.ini"
+      - "script/platformio_install_deps.py"
 
 permissions:
   contents: read
   packages: read
 
+concurrency:
+  # yamllint disable-line rule:line-length
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-docker:
     name: Build docker containers
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, armv7, aarch64]
-        build_type: ["ha-addon", "docker", "lint"]
+        os: ["ubuntu-24.04", "ubuntu-24.04-arm"]
+        build_type:
+          - "ha-addon"
+          - "docker"
+          # - "lint"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4.2.2
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6.0
         with:
-          python-version: "3.9"
+          python-version: "3.11"
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-buildx-action@v3.11.1
 
       - name: Set TAG
         run: |
@@ -51,6 +59,6 @@ jobs:
         run: |
           docker/build.py \
             --tag "${TAG}" \
-            --arch "${{ matrix.arch }}" \
+            --arch "${{ matrix.os == 'ubuntu-24.04-arm' && 'aarch64' || 'amd64' }}" \
             --build-type "${{ matrix.build_type }}" \
             build

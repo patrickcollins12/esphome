@@ -1,6 +1,14 @@
 from dataclasses import dataclass
 from typing import Any
+
 import esphome.codegen as cg
+from esphome.components.esp32 import get_esp32_variant
+from esphome.components.esp32.const import (
+    VARIANT_ESP32,
+    VARIANT_ESP32C3,
+    VARIANT_ESP32S2,
+    VARIANT_ESP32S3,
+)
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CHANNEL,
@@ -10,16 +18,9 @@ from esphome.const import (
     CONF_PIN,
     CONF_SPEED,
 )
-from esphome.components.esp32 import get_esp32_variant
-from esphome.components.esp32.const import (
-    VARIANT_ESP32,
-    VARIANT_ESP32S2,
-    VARIANT_ESP32C3,
-)
 from esphome.core import CORE
+
 from .const import (
-    CONF_ASYNC,
-    CONF_BUS,
     CHIP_400KBPS,
     CHIP_800KBPS,
     CHIP_APA106,
@@ -37,6 +38,8 @@ from .const import (
     CHIP_WS2812,
     CHIP_WS2812X,
     CHIP_WS2813,
+    CONF_ASYNC,
+    CONF_BUS,
     ONE_WIRE_CHIPS,
     TWO_WIRE_CHIPS,
 )
@@ -57,8 +60,9 @@ SPI_SPEEDS = [40e6, 20e6, 10e6, 5e6, 2e6, 1e6, 500e3]
 
 def _esp32_rmt_default_channel():
     return {
-        VARIANT_ESP32S2: 1,
         VARIANT_ESP32C3: 1,
+        VARIANT_ESP32S2: 1,
+        VARIANT_ESP32S3: 1,
     }.get(get_esp32_variant(), 6)
 
 
@@ -69,8 +73,9 @@ def _validate_esp32_rmt_channel(value):
         value = cv.int_(value)
     variant_channels = {
         VARIANT_ESP32: [0, 1, 2, 3, 4, 5, 6, 7, CHANNEL_DYNAMIC],
-        VARIANT_ESP32S2: [0, 1, 2, 3, CHANNEL_DYNAMIC],
         VARIANT_ESP32C3: [0, 1, CHANNEL_DYNAMIC],
+        VARIANT_ESP32S2: [0, 1, 2, 3, CHANNEL_DYNAMIC],
+        VARIANT_ESP32S3: [0, 1, 2, 3, CHANNEL_DYNAMIC],
     }
     variant = get_esp32_variant()
     if variant not in variant_channels:

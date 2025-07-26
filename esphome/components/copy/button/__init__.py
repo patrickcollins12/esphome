@@ -1,6 +1,6 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import button
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_DEVICE_CLASS,
     CONF_ENTITY_CATEGORY,
@@ -16,10 +16,9 @@ CopyButton = copy_ns.class_("CopyButton", button.Button, cg.Component)
 
 
 CONFIG_SCHEMA = (
-    button.button_schema()
+    button.button_schema(CopyButton)
     .extend(
         {
-            cv.GenerateID(): cv.declare_id(CopyButton),
             cv.Required(CONF_SOURCE_ID): cv.use_id(button.Button),
         }
     )

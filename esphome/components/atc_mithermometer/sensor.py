@@ -1,14 +1,14 @@
 import esphome.codegen as cg
+from esphome.components import esp32_ble_tracker, sensor
 import esphome.config_validation as cv
-from esphome.components import sensor, esp32_ble_tracker
 from esphome.const import (
     CONF_BATTERY_LEVEL,
     CONF_BATTERY_VOLTAGE,
-    CONF_MAC_ADDRESS,
     CONF_HUMIDITY,
+    CONF_ID,
+    CONF_MAC_ADDRESS,
     CONF_SIGNAL_STRENGTH,
     CONF_TEMPERATURE,
-    CONF_ID,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_HUMIDITY,
     DEVICE_CLASS_SIGNAL_STRENGTH,
@@ -83,18 +83,18 @@ async def to_code(config):
 
     cg.add(var.set_address(config[CONF_MAC_ADDRESS].as_hex))
 
-    if CONF_TEMPERATURE in config:
-        sens = await sensor.new_sensor(config[CONF_TEMPERATURE])
+    if temperature_config := config.get(CONF_TEMPERATURE):
+        sens = await sensor.new_sensor(temperature_config)
         cg.add(var.set_temperature(sens))
-    if CONF_HUMIDITY in config:
-        sens = await sensor.new_sensor(config[CONF_HUMIDITY])
+    if humidity_config := config.get(CONF_HUMIDITY):
+        sens = await sensor.new_sensor(humidity_config)
         cg.add(var.set_humidity(sens))
-    if CONF_BATTERY_LEVEL in config:
-        sens = await sensor.new_sensor(config[CONF_BATTERY_LEVEL])
+    if battery_level_config := config.get(CONF_BATTERY_LEVEL):
+        sens = await sensor.new_sensor(battery_level_config)
         cg.add(var.set_battery_level(sens))
-    if CONF_BATTERY_VOLTAGE in config:
-        sens = await sensor.new_sensor(config[CONF_BATTERY_VOLTAGE])
+    if battery_voltage_config := config.get(CONF_BATTERY_VOLTAGE):
+        sens = await sensor.new_sensor(battery_voltage_config)
         cg.add(var.set_battery_voltage(sens))
-    if CONF_SIGNAL_STRENGTH in config:
-        sens = await sensor.new_sensor(config[CONF_SIGNAL_STRENGTH])
+    if signal_strength_config := config.get(CONF_SIGNAL_STRENGTH):
+        sens = await sensor.new_sensor(signal_strength_config)
         cg.add(var.set_signal_strength(sens))

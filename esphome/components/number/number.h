@@ -23,6 +23,13 @@ namespace number {
     } \
   }
 
+#define SUB_NUMBER(name) \
+ protected: \
+  number::Number *name##_number_{nullptr}; \
+\
+ public: \
+  void set_##name##_number(number::Number *number) { this->name##_number_ = number; }
+
 class Number;
 
 /** Base-class for all numbers.
@@ -41,9 +48,6 @@ class Number : public EntityBase {
 
   NumberTraits traits;
 
-  /// Return whether this number has gotten a full state yet.
-  bool has_state() const { return has_state_; }
-
  protected:
   friend class NumberCall;
 
@@ -56,7 +60,6 @@ class Number : public EntityBase {
   virtual void control(float value) = 0;
 
   CallbackManager<void(float)> state_callback_;
-  bool has_state_{false};
 };
 
 }  // namespace number

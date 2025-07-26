@@ -1,49 +1,55 @@
 import esphome.codegen as cg
+from esphome.components import airthings_wave_base, sensor
 import esphome.config_validation as cv
-from esphome.components import sensor, ble_client
-
 from esphome.const import (
-    DEVICE_CLASS_CARBON_DIOXIDE,
-    DEVICE_CLASS_HUMIDITY,
-    DEVICE_CLASS_TEMPERATURE,
-    DEVICE_CLASS_PRESSURE,
-    STATE_CLASS_MEASUREMENT,
-    UNIT_PERCENT,
-    UNIT_CELSIUS,
-    UNIT_HECTOPASCAL,
-    ICON_RADIOACTIVE,
+    CONF_CO2,
     CONF_ID,
+    CONF_ILLUMINANCE,
     CONF_RADON,
     CONF_RADON_LONG_TERM,
-    CONF_HUMIDITY,
     CONF_TVOC,
-    CONF_CO2,
-    CONF_PRESSURE,
-    CONF_TEMPERATURE,
+    DEVICE_CLASS_CARBON_DIOXIDE,
+    DEVICE_CLASS_ILLUMINANCE,
+    ICON_RADIOACTIVE,
+    STATE_CLASS_MEASUREMENT,
     UNIT_BECQUEREL_PER_CUBIC_METER,
+    UNIT_LUX,
     UNIT_PARTS_PER_MILLION,
-    UNIT_PARTS_PER_BILLION,
-    ICON_RADIATOR,
 )
+from esphome.types import ConfigType
 
-DEPENDENCIES = ["ble_client"]
+DEPENDENCIES = airthings_wave_base.DEPENDENCIES
+
+AUTO_LOAD = ["airthings_wave_base"]
 
 airthings_wave_plus_ns = cg.esphome_ns.namespace("airthings_wave_plus")
 AirthingsWavePlus = airthings_wave_plus_ns.class_(
-    "AirthingsWavePlus", cg.PollingComponent, ble_client.BLEClientNode
+    "AirthingsWavePlus", airthings_wave_base.AirthingsWaveBase
 )
+
+CONF_DEVICE_TYPE = "device_type"
+WaveDeviceType = airthings_wave_plus_ns.enum("WaveDeviceType")
+DEVICE_TYPES = {
+    "WAVE_PLUS": WaveDeviceType.WAVE_PLUS,
+    "WAVE_GEN2": WaveDeviceType.WAVE_GEN2,
+}
+
+
+def validate_wave_gen2_config(config: ConfigType) -> ConfigType:
+    """Validate that Wave Gen2 devices don't have CO2 or TVOC sensors."""
+    if config[CONF_DEVICE_TYPE] == "WAVE_GEN2":
+        if CONF_CO2 in config:
+            raise cv.Invalid("Wave Gen2 devices do not support CO2 sensor")
+        # Check for TVOC in the base schema config
+        if CONF_TVOC in config:
+            raise cv.Invalid("Wave Gen2 devices do not support TVOC sensor")
+    return config
 
 
 CONFIG_SCHEMA = cv.All(
-    cv.Schema(
+    airthings_wave_base.BASE_SCHEMA.extend(
         {
             cv.GenerateID(): cv.declare_id(AirthingsWavePlus),
-            cv.Optional(CONF_HUMIDITY): sensor.sensor_schema(
-                unit_of_measurement=UNIT_PERCENT,
-                device_class=DEVICE_CLASS_HUMIDITY,
-                state_class=STATE_CLASS_MEASUREMENT,
-                accuracy_decimals=0,
-            ),
             cv.Optional(CONF_RADON): sensor.sensor_schema(
                 unit_of_measurement=UNIT_BECQUEREL_PER_CUBIC_METER,
                 icon=ICON_RADIOACTIVE,
@@ -56,61 +62,41 @@ CONFIG_SCHEMA = cv.All(
                 accuracy_decimals=0,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
-            cv.Optional(CONF_TEMPERATURE): sensor.sensor_schema(
-                unit_of_measurement=UNIT_CELSIUS,
-                accuracy_decimals=2,
-                device_class=DEVICE_CLASS_TEMPERATURE,
-                state_class=STATE_CLASS_MEASUREMENT,
-            ),
-            cv.Optional(CONF_PRESSURE): sensor.sensor_schema(
-                unit_of_measurement=UNIT_HECTOPASCAL,
-                accuracy_decimals=1,
-                device_class=DEVICE_CLASS_PRESSURE,
-                state_class=STATE_CLASS_MEASUREMENT,
-            ),
             cv.Optional(CONF_CO2): sensor.sensor_schema(
                 unit_of_measurement=UNIT_PARTS_PER_MILLION,
                 accuracy_decimals=0,
                 device_class=DEVICE_CLASS_CARBON_DIOXIDE,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
-            cv.Optional(CONF_TVOC): sensor.sensor_schema(
-                unit_of_measurement=UNIT_PARTS_PER_BILLION,
-                icon=ICON_RADIATOR,
+            cv.Optional(CONF_ILLUMINANCE): sensor.sensor_schema(
+                unit_of_measurement=UNIT_LUX,
                 accuracy_decimals=0,
+                device_class=DEVICE_CLASS_ILLUMINANCE,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
+            cv.Optional(CONF_DEVICE_TYPE, default="WAVE_PLUS"): cv.enum(
+                DEVICE_TYPES, upper=True
+            ),
         }
-    )
-    .extend(cv.polling_component_schema("5min"))
-    .extend(ble_client.BLE_CLIENT_SCHEMA),
+    ),
+    validate_wave_gen2_config,
 )
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
+    await airthings_wave_base.wave_base_to_code(var, config)
 
-    await ble_client.register_ble_node(var, config)
-
-    if CONF_HUMIDITY in config:
-        sens = await sensor.new_sensor(config[CONF_HUMIDITY])
-        cg.add(var.set_humidity(sens))
-    if CONF_RADON in config:
-        sens = await sensor.new_sensor(config[CONF_RADON])
+    if config_radon := config.get(CONF_RADON):
+        sens = await sensor.new_sensor(config_radon)
         cg.add(var.set_radon(sens))
-    if CONF_RADON_LONG_TERM in config:
-        sens = await sensor.new_sensor(config[CONF_RADON_LONG_TERM])
+    if config_radon_long_term := config.get(CONF_RADON_LONG_TERM):
+        sens = await sensor.new_sensor(config_radon_long_term)
         cg.add(var.set_radon_long_term(sens))
-    if CONF_TEMPERATURE in config:
-        sens = await sensor.new_sensor(config[CONF_TEMPERATURE])
-        cg.add(var.set_temperature(sens))
-    if CONF_PRESSURE in config:
-        sens = await sensor.new_sensor(config[CONF_PRESSURE])
-        cg.add(var.set_pressure(sens))
-    if CONF_CO2 in config:
-        sens = await sensor.new_sensor(config[CONF_CO2])
+    if config_co2 := config.get(CONF_CO2):
+        sens = await sensor.new_sensor(config_co2)
         cg.add(var.set_co2(sens))
-    if CONF_TVOC in config:
-        sens = await sensor.new_sensor(config[CONF_TVOC])
-        cg.add(var.set_tvoc(sens))
+    if config_illuminance := config.get(CONF_ILLUMINANCE):
+        sens = await sensor.new_sensor(config_illuminance)
+        cg.add(var.set_illuminance(sens))
+    cg.add(var.set_device_type(config[CONF_DEVICE_TYPE]))

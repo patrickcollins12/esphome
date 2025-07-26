@@ -1,16 +1,19 @@
+from esphome import automation, pins
+from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import pins, automation
-from esphome.automation import maybe_simple_id
 from esphome.const import (
-    CONF_ID,
+    CONF_BRIGHTNESS,
     CONF_CLK_PIN,
     CONF_DIO_PIN,
+    CONF_ID,
     CONF_LEVEL,
-    CONF_BRIGHTNESS,
 )
 
+CODEOWNERS = ["@freekode"]
+
 tm1651_ns = cg.esphome_ns.namespace("tm1651")
+TM1651Brightness = tm1651_ns.enum("TM1651Brightness")
 TM1651Display = tm1651_ns.class_("TM1651Display", cg.Component)
 
 SetLevelPercentAction = tm1651_ns.class_("SetLevelPercentAction", automation.Action)
@@ -22,9 +25,9 @@ TurnOffAction = tm1651_ns.class_("SetLevelPercentAction", automation.Action)
 CONF_LEVEL_PERCENT = "level_percent"
 
 TM1651_BRIGHTNESS_OPTIONS = {
-    1: TM1651Display.TM1651_BRIGHTNESS_LOW,
-    2: TM1651Display.TM1651_BRIGHTNESS_MEDIUM,
-    3: TM1651Display.TM1651_BRIGHTNESS_HIGH,
+    1: TM1651Brightness.TM1651_BRIGHTNESS_LOW,
+    2: TM1651Brightness.TM1651_BRIGHTNESS_MEDIUM,
+    3: TM1651Brightness.TM1651_BRIGHTNESS_HIGH,
 }
 
 CONFIG_SCHEMA = cv.All(

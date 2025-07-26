@@ -1,8 +1,8 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import spi, canbus
-from esphome.const import CONF_ID, CONF_MODE
+from esphome.components import canbus, spi
 from esphome.components.canbus import CanbusComponent
+import esphome.config_validation as cv
+from esphome.const import CONF_ID, CONF_MODE
 
 CODEOWNERS = ["@mvturnho", "@danielschramm"]
 DEPENDENCIES = ["spi"]
@@ -16,6 +16,7 @@ McpMode = mcp2515_ns.enum("CANCTRL_REQOP_MODE")
 
 CAN_CLOCK = {
     "8MHZ": CanClock.MCP_8MHZ,
+    "12MHZ": CanClock.MCP_12MHZ,
     "16MHZ": CanClock.MCP_16MHZ,
     "20MHZ": CanClock.MCP_20MHZ,
 }

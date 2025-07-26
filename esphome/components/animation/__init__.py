@@ -1,144 +1,105 @@
 import logging
 
-from esphome import core
-from esphome.components import display, font
+from esphome import automation
+import esphome.codegen as cg
 import esphome.components.image as espImage
 import esphome.config_validation as cv
-import esphome.codegen as cg
-from esphome.const import CONF_FILE, CONF_ID, CONF_RAW_DATA_ID, CONF_RESIZE, CONF_TYPE
-from esphome.core import CORE, HexInt
+from esphome.const import CONF_ID, CONF_REPEAT
 
 _LOGGER = logging.getLogger(__name__)
 
+AUTO_LOAD = ["image"]
+CODEOWNERS = ["@syndlex"]
 DEPENDENCIES = ["display"]
 MULTI_CONF = True
+MULTI_CONF_NO_DEFAULT = True
 
-Animation_ = display.display_ns.class_("Animation", espImage.Image_)
+CONF_LOOP = "loop"
+CONF_START_FRAME = "start_frame"
+CONF_END_FRAME = "end_frame"
+CONF_FRAME = "frame"
 
-ANIMATION_SCHEMA = cv.Schema(
+animation_ns = cg.esphome_ns.namespace("animation")
+
+Animation_ = animation_ns.class_("Animation", espImage.Image_)
+
+# Actions
+NextFrameAction = animation_ns.class_(
+    "AnimationNextFrameAction", automation.Action, cg.Parented.template(Animation_)
+)
+PrevFrameAction = animation_ns.class_(
+    "AnimationPrevFrameAction", automation.Action, cg.Parented.template(Animation_)
+)
+SetFrameAction = animation_ns.class_(
+    "AnimationSetFrameAction", automation.Action, cg.Parented.template(Animation_)
+)
+
+CONFIG_SCHEMA = espImage.IMAGE_SCHEMA.extend(
     {
         cv.Required(CONF_ID): cv.declare_id(Animation_),
-        cv.Required(CONF_FILE): cv.file_,
-        cv.Optional(CONF_RESIZE): cv.dimensions,
-        cv.Optional(CONF_TYPE, default="BINARY"): cv.enum(
-            espImage.IMAGE_TYPE, upper=True
+        cv.Optional(CONF_LOOP): cv.All(
+            {
+                cv.Optional(CONF_START_FRAME, default=0): cv.positive_int,
+                cv.Optional(CONF_END_FRAME): cv.positive_int,
+                cv.Optional(CONF_REPEAT): cv.positive_int,
+            }
         ),
-        cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
+    },
+)
+
+
+NEXT_FRAME_SCHEMA = automation.maybe_simple_id(
+    {
+        cv.GenerateID(): cv.use_id(Animation_),
+    }
+)
+PREV_FRAME_SCHEMA = automation.maybe_simple_id(
+    {
+        cv.GenerateID(): cv.use_id(Animation_),
+    }
+)
+SET_FRAME_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(Animation_),
+        cv.Required(CONF_FRAME): cv.uint16_t,
     }
 )
 
-CONFIG_SCHEMA = cv.All(font.validate_pillow_installed, ANIMATION_SCHEMA)
 
-CODEOWNERS = ["@syndlex"]
+@automation.register_action("animation.next_frame", NextFrameAction, NEXT_FRAME_SCHEMA)
+@automation.register_action("animation.prev_frame", PrevFrameAction, PREV_FRAME_SCHEMA)
+@automation.register_action("animation.set_frame", SetFrameAction, SET_FRAME_SCHEMA)
+async def animation_action_to_code(config, action_id, template_arg, args):
+    paren = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, paren)
+
+    if (frame := config.get(CONF_FRAME)) is not None:
+        template_ = await cg.templatable(frame, args, cg.uint16)
+        cg.add(var.set_frame(template_))
+    return var
 
 
 async def to_code(config):
-    from PIL import Image
+    (
+        prog_arr,
+        width,
+        height,
+        image_type,
+        trans_value,
+        frame_count,
+    ) = await espImage.write_image(config, all_frames=True)
 
-    path = CORE.relative_config_path(config[CONF_FILE])
-    try:
-        image = Image.open(path)
-    except Exception as e:
-        raise core.EsphomeError(f"Could not load image file {path}: {e}")
-
-    width, height = image.size
-    frames = image.n_frames
-    if CONF_RESIZE in config:
-        new_width_max, new_height_max = config[CONF_RESIZE]
-        ratio = min(new_width_max / width, new_height_max / height)
-        width, height = int(width * ratio), int(height * ratio)
-    else:
-        if width > 500 or height > 500:
-            _LOGGER.warning(
-                "The image you requested is very big. Please consider using"
-                " the resize parameter."
-            )
-
-    if config[CONF_TYPE] == "GRAYSCALE":
-        data = [0 for _ in range(height * width * frames)]
-        pos = 0
-        for frameIndex in range(frames):
-            image.seek(frameIndex)
-            frame = image.convert("L", dither=Image.NONE)
-            if CONF_RESIZE in config:
-                frame = frame.resize([width, height])
-            pixels = list(frame.getdata())
-            if len(pixels) != height * width:
-                raise core.EsphomeError(
-                    f"Unexpected number of pixels in {path} frame {frameIndex}: ({len(pixels)} != {height*width})"
-                )
-            for pix in pixels:
-                data[pos] = pix
-                pos += 1
-
-    elif config[CONF_TYPE] == "RGB24":
-        data = [0 for _ in range(height * width * 3 * frames)]
-        pos = 0
-        for frameIndex in range(frames):
-            image.seek(frameIndex)
-            if CONF_RESIZE in config:
-                image.thumbnail(config[CONF_RESIZE])
-            frame = image.convert("RGB")
-            if CONF_RESIZE in config:
-                frame = frame.resize([width, height])
-            pixels = list(frame.getdata())
-            if len(pixels) != height * width:
-                raise core.EsphomeError(
-                    f"Unexpected number of pixels in {path} frame {frameIndex}: ({len(pixels)} != {height*width})"
-                )
-            for pix in pixels:
-                data[pos] = pix[0]
-                pos += 1
-                data[pos] = pix[1]
-                pos += 1
-                data[pos] = pix[2]
-                pos += 1
-
-    elif config[CONF_TYPE] == "RGB565":
-        data = [0 for _ in range(height * width * 2 * frames)]
-        pos = 0
-        for frameIndex in range(frames):
-            image.seek(frameIndex)
-            frame = image.convert("RGB")
-            if CONF_RESIZE in config:
-                frame = frame.resize([width, height])
-            pixels = list(frame.getdata())
-            if len(pixels) != height * width:
-                raise core.EsphomeError(
-                    f"Unexpected number of pixels in {path} frame {frameIndex}: ({len(pixels)} != {height*width})"
-                )
-            for pix in pixels:
-                R = pix[0] >> 3
-                G = pix[1] >> 2
-                B = pix[2] >> 3
-                rgb = (R << 11) | (G << 5) | B
-                data[pos] = rgb >> 8
-                pos += 1
-                data[pos] = rgb & 255
-                pos += 1
-
-    elif config[CONF_TYPE] in ["BINARY", "TRANSPARENT_BINARY"]:
-        width8 = ((width + 7) // 8) * 8
-        data = [0 for _ in range((height * width8 // 8) * frames)]
-        for frameIndex in range(frames):
-            image.seek(frameIndex)
-            frame = image.convert("1", dither=Image.NONE)
-            if CONF_RESIZE in config:
-                frame = frame.resize([width, height])
-            for y in range(height):
-                for x in range(width):
-                    if frame.getpixel((x, y)):
-                        continue
-                    pos = x + y * width8 + (height * width8 * frameIndex)
-                    data[pos // 8] |= 0x80 >> (pos % 8)
-
-    rhs = [HexInt(x) for x in data]
-    prog_arr = cg.progmem_array(config[CONF_RAW_DATA_ID], rhs)
-    cg.new_Pvariable(
+    var = cg.new_Pvariable(
         config[CONF_ID],
         prog_arr,
         width,
         height,
-        frames,
-        espImage.IMAGE_TYPE[config[CONF_TYPE]],
+        frame_count,
+        image_type,
+        trans_value,
     )
+    if loop_config := config.get(CONF_LOOP):
+        start = loop_config[CONF_START_FRAME]
+        end = loop_config.get(CONF_END_FRAME, frame_count)
+        count = loop_config.get(CONF_REPEAT, -1)
+        cg.add(var.set_loop(start, end, count))

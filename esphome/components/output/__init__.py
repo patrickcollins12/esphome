@@ -1,8 +1,8 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation
 from esphome.automation import maybe_simple_id
+import esphome.codegen as cg
 from esphome.components import power_supply
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_ID,
     CONF_INVERTED,
@@ -12,7 +12,6 @@ from esphome.const import (
     CONF_POWER_SUPPLY,
 )
 from esphome.core import CORE
-
 
 CODEOWNERS = ["@esphome/core"]
 IS_PLATFORM_COMPONENT = True
@@ -106,4 +105,5 @@ async def output_set_level_to_code(config, action_id, template_arg, args):
 
 
 async def to_code(config):
+    cg.add_define("USE_OUTPUT")
     cg.add_global(output_ns.using)

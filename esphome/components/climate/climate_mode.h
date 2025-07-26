@@ -20,7 +20,7 @@ enum ClimateMode : uint8_t {
   CLIMATE_MODE_FAN_ONLY = 4,
   /// The climate device is set to dry/humidity mode
   CLIMATE_MODE_DRY = 5,
-  /** The climate device is adjusting the temperatre dynamically.
+  /** The climate device is adjusting the temperature dynamically.
    * For example, the target temperature can be adjusted based on a schedule, or learned behavior.
    * The target temperature can't be adjusted when in this mode.
    */
@@ -62,6 +62,8 @@ enum ClimateFanMode : uint8_t {
   CLIMATE_FAN_FOCUS = 7,
   /// The fan mode is set to Diffuse
   CLIMATE_FAN_DIFFUSE = 8,
+  /// The fan mode is set to Quiet
+  CLIMATE_FAN_QUIET = 9,
 };
 
 /// Enum for all modes a climate swing can be in

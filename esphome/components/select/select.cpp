@@ -10,9 +10,9 @@ void Select::publish_state(const std::string &state) {
   auto index = this->index_of(state);
   const auto *name = this->get_name().c_str();
   if (index.has_value()) {
-    this->has_state_ = true;
+    this->set_has_state(true);
     this->state = state;
-    ESP_LOGD(TAG, "'%s': Sending state %s (index %d)", name, state.c_str(), index.value());
+    ESP_LOGD(TAG, "'%s': Sending state %s (index %zu)", name, state.c_str(), index.value());
     this->state_callback_.call(state, index.value());
   } else {
     ESP_LOGE(TAG, "'%s': invalid state for publish_state(): %s", name, state.c_str());

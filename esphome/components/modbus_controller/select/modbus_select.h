@@ -12,7 +12,7 @@ namespace modbus_controller {
 
 class ModbusSelect : public Component, public select::Select, public SensorItem {
  public:
-  ModbusSelect(SensorValueType sensor_value_type, uint16_t start_address, uint8_t register_count, uint8_t skip_updates,
+  ModbusSelect(SensorValueType sensor_value_type, uint16_t start_address, uint8_t register_count, uint16_t skip_updates,
                bool force_new_range, std::vector<int64_t> mapping) {
     this->register_type = ModbusRegisterType::HOLDING;  // not configurable
     this->sensor_value_type = sensor_value_type;
@@ -42,12 +42,12 @@ class ModbusSelect : public Component, public select::Select, public SensorItem 
   void control(const std::string &value) override;
 
  protected:
-  std::vector<int64_t> mapping_;
-  ModbusController *parent_;
+  std::vector<int64_t> mapping_{};
+  ModbusController *parent_{nullptr};
   bool use_write_multiple_{false};
   bool optimistic_{false};
-  optional<transform_func_t> transform_func_;
-  optional<write_transform_func_t> write_transform_func_;
+  optional<transform_func_t> transform_func_{nullopt};
+  optional<write_transform_func_t> write_transform_func_{nullopt};
 };
 
 }  // namespace modbus_controller

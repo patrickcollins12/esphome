@@ -1,6 +1,6 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import number
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_ENTITY_CATEGORY,
     CONF_ICON,
@@ -15,12 +15,15 @@ from .. import copy_ns
 CopyNumber = copy_ns.class_("CopyNumber", number.Number, cg.Component)
 
 
-CONFIG_SCHEMA = number.NUMBER_SCHEMA.extend(
-    {
-        cv.GenerateID(): cv.declare_id(CopyNumber),
-        cv.Required(CONF_SOURCE_ID): cv.use_id(number.Number),
-    }
-).extend(cv.COMPONENT_SCHEMA)
+CONFIG_SCHEMA = (
+    number.number_schema(CopyNumber)
+    .extend(
+        {
+            cv.Required(CONF_SOURCE_ID): cv.use_id(number.Number),
+        }
+    )
+    .extend(cv.COMPONENT_SCHEMA)
+)
 
 FINAL_VALIDATE_SCHEMA = cv.All(
     inherit_property_from(CONF_ICON, CONF_SOURCE_ID),

@@ -1,22 +1,18 @@
 import logging
 
 from esphome.const import (
-    CONF_DISABLED_BY_DEFAULT,
-    CONF_ENTITY_CATEGORY,
-    CONF_ICON,
-    CONF_INTERNAL,
-    CONF_NAME,
+    CONF_SAFE_MODE,
     CONF_SETUP_PRIORITY,
-    CONF_UPDATE_INTERVAL,
     CONF_TYPE_ID,
+    CONF_UPDATE_INTERVAL,
+    KEY_PAST_SAFE_MODE,
 )
-
-from esphome.core import coroutine, ID, CORE
-from esphome.types import ConfigType, ConfigFragmentType
+from esphome.core import CORE, ID, coroutine
+from esphome.coroutine import FakeAwaitable
 from esphome.cpp_generator import add, get_variable
 from esphome.cpp_types import App
+from esphome.types import ConfigFragmentType, ConfigType
 from esphome.util import Registry, RegistryEntry
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +26,7 @@ async def gpio_pin_expression(conf):
         return None
     from esphome import pins
 
-    for key, (func, _) in pins.PIN_SCHEMA_REGISTRY.items():
+    for key, (func, _, _) in pins.PIN_SCHEMA_REGISTRY.items():
         if key in conf:
             return await coroutine(func)(conf)
     return await coroutine(pins.PIN_SCHEMA_REGISTRY[CORE.target_platform][0])(conf)
@@ -94,18 +90,6 @@ async def register_parented(var, value):
     add(var.set_parent(paren))
 
 
-async def setup_entity(var, config):
-    """Set up generic properties of an Entity"""
-    add(var.set_name(config[CONF_NAME]))
-    add(var.set_disabled_by_default(config[CONF_DISABLED_BY_DEFAULT]))
-    if CONF_INTERNAL in config:
-        add(var.set_internal(config[CONF_INTERNAL]))
-    if CONF_ICON in config:
-        add(var.set_icon(config[CONF_ICON]))
-    if CONF_ENTITY_CATEGORY in config:
-        add(var.set_entity_category(config[CONF_ENTITY_CATEGORY]))
-
-
 def extract_registry_entry_config(
     registry: Registry,
     full_config: ConfigType,
@@ -127,3 +111,16 @@ async def build_registry_list(registry, config):
         action = await build_registry_entry(registry, conf)
         actions.append(action)
     return actions
+
+
+async def past_safe_mode():
+    if CONF_SAFE_MODE not in CORE.config:
+        return
+
+    def _safe_mode_generator():
+        while True:
+            if CORE.data.get(CONF_SAFE_MODE, {}).get(KEY_PAST_SAFE_MODE, False):
+                return
+            yield
+
+    return await FakeAwaitable(_safe_mode_generator())

@@ -1,67 +1,97 @@
 """Helpers for config validation using voluptuous."""
 
+from __future__ import annotations
+
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from datetime import datetime
+from ipaddress import (
+    AddressValueError,
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+    ip_address,
+    ip_network,
+)
 import logging
 import os
 import re
-from contextlib import contextmanager
-import uuid as uuid_
-from datetime import datetime
 from string import ascii_letters, digits
+import uuid as uuid_
 
 import voluptuous as vol
 
 from esphome import core
 import esphome.codegen as cg
+from esphome.config_helpers import Extend, Remove
 from esphome.const import (
     ALLOWED_NAME_CHARS,
     CONF_AVAILABILITY,
-    CONF_COMMAND_TOPIC,
     CONF_COMMAND_RETAIN,
+    CONF_COMMAND_TOPIC,
+    CONF_DAY,
+    CONF_DEVICE_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_DISCOVERY,
     CONF_ENTITY_CATEGORY,
+    CONF_HOUR,
     CONF_ICON,
     CONF_ID,
     CONF_INTERNAL,
+    CONF_MINUTE,
+    CONF_MONTH,
     CONF_NAME,
+    CONF_PASSWORD,
+    CONF_PATH,
     CONF_PAYLOAD_AVAILABLE,
     CONF_PAYLOAD_NOT_AVAILABLE,
+    CONF_QOS,
+    CONF_REF,
     CONF_RETAIN,
+    CONF_SECOND,
     CONF_SETUP_PRIORITY,
     CONF_STATE_TOPIC,
+    CONF_SUBSCRIBE_QOS,
     CONF_TOPIC,
-    CONF_HOUR,
-    CONF_MINUTE,
-    CONF_SECOND,
-    CONF_VALUE,
-    CONF_UPDATE_INTERVAL,
-    CONF_TYPE_ID,
     CONF_TYPE,
+    CONF_TYPE_ID,
+    CONF_UPDATE_INTERVAL,
+    CONF_URL,
+    CONF_USERNAME,
+    CONF_VALUE,
+    CONF_YEAR,
     ENTITY_CATEGORY_CONFIG,
     ENTITY_CATEGORY_DIAGNOSTIC,
     ENTITY_CATEGORY_NONE,
     KEY_CORE,
     KEY_FRAMEWORK_VERSION,
     KEY_TARGET_FRAMEWORK,
-    KEY_TARGET_PLATFORM,
+    PLATFORM_ESP32,
+    PLATFORM_ESP8266,
+    PLATFORM_RP2040,
+    TYPE_GIT,
+    TYPE_LOCAL,
+    VALID_SUBSTITUTIONS_CHARACTERS,
+    Framework,
+    __version__ as ESPHOME_VERSION,
 )
 from esphome.core import (
     CORE,
     HexInt,
-    IPAddress,
     Lambda,
     TimePeriod,
     TimePeriodMicroseconds,
     TimePeriodMilliseconds,
-    TimePeriodSeconds,
     TimePeriodMinutes,
+    TimePeriodNanoseconds,
+    TimePeriodSeconds,
 )
-from esphome.helpers import list_starts_with, add_class_to_obj
+from esphome.helpers import add_class_to_obj, list_starts_with
 from esphome.schema_extractors import (
     SCHEMA_EXTRACT,
-    schema_extractor_list,
     schema_extractor,
+    schema_extractor_list,
     schema_extractor_registry,
     schema_extractor_typed,
 )
@@ -70,6 +100,11 @@ from esphome.voluptuous_schema import _Schema
 from esphome.yaml_util import make_data_base
 
 _LOGGER = logging.getLogger(__name__)
+
+# pylint: disable=consider-using-f-string
+VARIABLE_PROG = re.compile(
+    f"\\$([{VALID_SUBSTITUTIONS_CHARACTERS}]+|\\{{[{VALID_SUBSTITUTIONS_CHARACTERS}]*\\}})"
+)
 
 # pylint: disable=invalid-name
 
@@ -93,7 +128,8 @@ RequiredFieldInvalid = vol.RequiredFieldInvalid
 ROOT_CONFIG_PATH = object()
 
 RESERVED_IDS = [
-    # C++ keywords http://en.cppreference.com/w/cpp/keyword
+    # C++ keywords https://en.cppreference.com/w/cpp/keyword
+    "alarm",
     "alignas",
     "alignof",
     "and",
@@ -110,6 +146,7 @@ RESERVED_IDS = [
     "char16_t",
     "char32_t",
     "class",
+    "clock",
     "compl",
     "concept",
     "const",
@@ -163,6 +200,7 @@ RESERVED_IDS = [
     "struct",
     "switch",
     "template",
+    "text",
     "this",
     "thread_local",
     "throw",
@@ -203,6 +241,9 @@ RESERVED_IDS = [
     "open",
     "setup",
     "loop",
+    "uart0",
+    "uart1",
+    "uart2",
 ]
 
 
@@ -238,6 +279,42 @@ class Required(vol.Required):
         super().__init__(key, msg=msg)
 
 
+class FinalExternalInvalid(Invalid):
+    """Represents an invalid value in the final validation phase where the path should not be prepended."""
+
+
+@dataclass(frozen=True, order=True)
+class Version:
+    major: int
+    minor: int
+    patch: int
+    extra: str = ""
+
+    def __str__(self):
+        return f"{self.major}.{self.minor}.{self.patch}"
+
+    @classmethod
+    def parse(cls, value: str) -> Version:
+        match = re.match(r"^(\d+).(\d+).(\d+)-?(\w*)$", value)
+        if match is None:
+            raise ValueError(f"Not a valid version number {value}")
+        major = int(match[1])
+        minor = int(match[2])
+        patch = int(match[3])
+        extra = match[4] or ""
+        return Version(major=major, minor=minor, patch=patch, extra=extra)
+
+    @property
+    def is_beta(self) -> bool:
+        """Check if this version is a beta version."""
+        return self.extra.startswith("b")
+
+    @property
+    def is_dev(self) -> bool:
+        """Check if this version is a development version."""
+        return self.extra.startswith("dev")
+
+
 def check_not_templatable(value):
     if isinstance(value, Lambda):
         raise Invalid("This option is not templatable!")
@@ -254,6 +331,14 @@ def alphanumeric(value):
 
 def valid_name(value):
     value = string_strict(value)
+
+    if CORE.vscode:
+        # If the value is a substitution, it can't be validated until the substitution
+        # is actually made.
+        sub_match = VARIABLE_PROG.search(value)
+        if sub_match:
+            return value
+
     for c in value:
         if c not in ALLOWED_NAME_CHARS:
             raise Invalid(
@@ -267,7 +352,7 @@ def string(value):
     """Validate that a configuration value is a string. If not, automatically converts to a string.
 
     Note that this can be lossy, for example the input value 60.00 (float) will be turned into
-    "60.0" (string). For values where this could be a problem `string_string` has to be used.
+    "60.0" (string). For values where this could be a problem `string_strict` has to be used.
     """
     check_not_templatable(value)
     if isinstance(value, (dict, list)):
@@ -306,6 +391,13 @@ def icon(value):
     )
 
 
+def sub_device_id(value: str | None) -> core.ID:
+    # Lazy import to avoid circular imports
+    from esphome.core.config import Device
+
+    return use_id(Device)(value)
+
+
 def boolean(value):
     """Validate the given config option to be a boolean.
 
@@ -327,6 +419,20 @@ def boolean(value):
     raise Invalid(
         f"Expected boolean value, but cannot convert {value} to a boolean. Please use 'true' or 'false'"
     )
+
+
+def boolean_false(value):
+    """Validate the given config option to be a boolean, set to False.
+
+    This option allows a bunch of different ways of expressing boolean values:
+     - instance of boolean
+     - 'true'/'false'
+     - 'yes'/'no'
+     - 'enable'/disable
+    """
+    if boolean(value):
+        raise Invalid("Expected boolean value to be false")
+    return False
 
 
 @schema_extractor_list
@@ -423,6 +529,7 @@ zero_to_one_float = float_range(min=0, max=1)
 negative_one_to_one_float = float_range(min=-1, max=1)
 positive_int = int_range(min=0)
 positive_not_null_int = int_range(min=0, min_included=False)
+positive_not_null_float = float_range(min=0, min_included=False)
 
 
 def validate_id_name(value):
@@ -436,6 +543,14 @@ def validate_id_name(value):
         raise Invalid(
             "Dashes are not supported in IDs, please use underscores instead."
         )
+
+    if CORE.vscode:
+        # If the value is a substitution, it can't be validated until the substitution
+        # is actually made
+        sub_match = VARIABLE_PROG.match(value)
+        if sub_match:
+            return value
+
     valid_chars = f"{ascii_letters + digits}_"
     for char in value:
         if char not in valid_chars:
@@ -490,6 +605,12 @@ def declare_id(type):
         if value is None:
             return core.ID(None, is_declaration=True, type=type)
 
+        if isinstance(value, Extend):
+            raise Invalid(f"Source for extension of ID '{value.value}' was not found.")
+
+        if isinstance(value, Remove):
+            raise Invalid(f"Source for Removal of ID '{value.value}' was not found.")
+
         return core.ID(validate_id_name(value), is_declaration=True, type=type)
 
     return validator
@@ -531,26 +652,45 @@ def only_on(platforms):
     return validator_
 
 
-def only_with_framework(frameworks):
+def only_with_framework(
+    frameworks: Framework | str | list[Framework | str], suggestions=None
+):
     """Validate that this option can only be specified on the given frameworks."""
     if not isinstance(frameworks, list):
         frameworks = [frameworks]
 
+    frameworks = [Framework(framework) for framework in frameworks]
+
+    if suggestions is None:
+        suggestions = {}
+
+    version = Version.parse(ESPHOME_VERSION)
+    if version.is_beta:
+        docs_format = "https://beta.esphome.io/components/{path}"
+    elif version.is_dev:
+        docs_format = "https://next.esphome.io/components/{path}"
+    else:
+        docs_format = "https://esphome.io/components/{path}"
+
     def validator_(obj):
         if CORE.target_framework not in frameworks:
-            raise Invalid(
-                f"This feature is only available with frameworks {frameworks}"
-            )
+            err_str = f"This feature is only available with framework(s) {', '.join([framework.value for framework in frameworks])}"
+            if suggestion := suggestions.get(CORE.target_framework, None):
+                (component, docs_path) = suggestion
+                err_str += f"\nPlease use '{component}'"
+                if docs_path:
+                    err_str += f": {docs_format.format(path=docs_path)}"
+            raise Invalid(err_str)
         return obj
 
     return validator_
 
 
-only_on_esp32 = only_on("esp32")
-only_on_esp8266 = only_on("esp8266")
-only_on_rp2040 = only_on("rp2040")
-only_with_arduino = only_with_framework("arduino")
-only_with_esp_idf = only_with_framework("esp-idf")
+only_on_esp32 = only_on(PLATFORM_ESP32)
+only_on_esp8266 = only_on(PLATFORM_ESP8266)
+only_on_rp2040 = only_on(PLATFORM_RP2040)
+only_with_arduino = only_with_framework(Framework.ARDUINO)
+only_with_esp_idf = only_with_framework(Framework.ESP_IDF)
 
 
 # Adapted from:
@@ -677,7 +817,10 @@ def time_period_str_unit(value):
         raise Invalid("Expected string for time period with unit.")
 
     unit_to_kwarg = {
+        "ns": "nanoseconds",
+        "nanoseconds": "nanoseconds",
         "us": "microseconds",
+        "µs": "microseconds",
         "microseconds": "microseconds",
         "ms": "milliseconds",
         "milliseconds": "milliseconds",
@@ -698,7 +841,10 @@ def time_period_str_unit(value):
         raise Invalid(f"Expected time period with unit, got {value}")
     kwarg = unit_to_kwarg[one_of(*unit_to_kwarg)(match.group(2))]
 
-    return TimePeriod(**{kwarg: float(match.group(1))})
+    try:
+        return TimePeriod(**{kwarg: float(match.group(1))})
+    except ValueError as e:
+        raise Invalid(e) from e
 
 
 def time_period_in_milliseconds_(value):
@@ -708,10 +854,18 @@ def time_period_in_milliseconds_(value):
 
 
 def time_period_in_microseconds_(value):
+    if value.nanoseconds is not None and value.nanoseconds != 0:
+        raise Invalid("Maximum precision is microseconds")
     return TimePeriodMicroseconds(**value.as_dict())
 
 
+def time_period_in_nanoseconds_(value):
+    return TimePeriodNanoseconds(**value.as_dict())
+
+
 def time_period_in_seconds_(value):
+    if value.nanoseconds is not None and value.nanoseconds != 0:
+        raise Invalid("Maximum precision is seconds")
     if value.microseconds is not None and value.microseconds != 0:
         raise Invalid("Maximum precision is seconds")
     if value.milliseconds is not None and value.milliseconds != 0:
@@ -720,6 +874,8 @@ def time_period_in_seconds_(value):
 
 
 def time_period_in_minutes_(value):
+    if value.nanoseconds is not None and value.nanoseconds != 0:
+        raise Invalid("Maximum precision is minutes")
     if value.microseconds is not None and value.microseconds != 0:
         raise Invalid("Maximum precision is minutes")
     if value.milliseconds is not None and value.milliseconds != 0:
@@ -746,27 +902,113 @@ time_period_microseconds = All(time_period, time_period_in_microseconds_)
 positive_time_period_microseconds = All(
     positive_time_period, time_period_in_microseconds_
 )
+positive_time_period_nanoseconds = All(
+    positive_time_period, time_period_in_nanoseconds_
+)
 positive_not_null_time_period = All(
     time_period, Range(min=TimePeriod(), min_included=False)
 )
 
 
 def time_of_day(value):
-    value = string(value)
-    try:
-        date = datetime.strptime(value, "%H:%M:%S")
-    except ValueError as err:
-        try:
-            date = datetime.strptime(value, "%H:%M:%S %p")
-        except ValueError:
-            # pylint: disable=raise-missing-from
-            raise Invalid(f"Invalid time of day: {err}")
+    return date_time(date=False, time=True)(value)
 
-    return {
-        CONF_HOUR: date.hour,
-        CONF_MINUTE: date.minute,
-        CONF_SECOND: date.second,
-    }
+
+def date_time(date: bool, time: bool):
+    pattern_str = r"^"  # Start of string
+    if date:
+        pattern_str += r"\d{4}-\d{1,2}-\d{1,2}"
+        if time:
+            pattern_str += r" "
+    if time:
+        pattern_str += (
+            r"\d{1,2}:\d{2}"  # Hour/Minute
+            r"(:\d{2})?"  # 1. Seconds
+            r"("  # 2. Optional AM/PM group
+            r"(\s)?"  # 3. Optional Space
+            r"(?:AM|PM|am|pm)"  # AM/PM string matching
+            r")?"  # End optional AM/PM group
+        )
+    pattern_str += r"$"  # End of string
+
+    pattern = re.compile(pattern_str)
+
+    exc_message = ""
+    if date:
+        exc_message += "date"
+    if time:
+        exc_message += "time"
+
+    schema = Schema({})
+    if date:
+        schema = schema.extend(
+            {
+                Required(CONF_YEAR): int_range(min=1970, max=3000),
+                Required(CONF_MONTH): int_range(min=1, max=12),
+                Required(CONF_DAY): int_range(min=1, max=31),
+            }
+        )
+    if time:
+        schema = schema.extend(
+            {
+                Required(CONF_HOUR): int_range(min=0, max=23),
+                Required(CONF_MINUTE): int_range(min=0, max=59),
+                Required(CONF_SECOND): int_range(min=0, max=59),
+            }
+        )
+
+    def validator(value):
+        if isinstance(value, dict):
+            return schema(value)
+        value = string(value)
+
+        match = pattern.match(value)
+        if match is None:
+            # pylint: disable=raise-missing-from
+            raise Invalid(f"Invalid {exc_message}: {value}")
+
+        if time:
+            has_seconds = match[1] is not None
+            has_ampm = match[2] is not None
+            has_ampm_space = match[3] is not None
+
+        format = ""
+        if date:
+            format += "%Y-%m-%d"
+            if time:
+                format += " "
+        if time:
+            if has_ampm:
+                format += "%I:%M"
+            else:
+                format += "%H:%M"
+            if has_seconds:
+                format += ":%S"
+            if has_ampm_space:
+                format += " "
+            if has_ampm:
+                format += "%p"
+
+        try:
+            date_obj = datetime.strptime(value, format)
+        except ValueError as err:
+            # pylint: disable=raise-missing-from
+            raise Invalid(f"Invalid {exc_message}: {err}")
+
+        return_value = {}
+        if date:
+            return_value[CONF_YEAR] = date_obj.year
+            return_value[CONF_MONTH] = date_obj.month
+            return_value[CONF_DAY] = date_obj.day
+
+        if time:
+            return_value[CONF_HOUR] = date_obj.hour
+            return_value[CONF_MINUTE] = date_obj.minute
+            return_value[CONF_SECOND] = date_obj.second if has_seconds else 0
+
+        return schema(return_value)
+
+    return validator
 
 
 def mac_address(value):
@@ -810,23 +1052,32 @@ def uuid(value):
 
 
 METRIC_SUFFIXES = {
-    "E": 1e18,
-    "P": 1e15,
-    "T": 1e12,
-    "G": 1e9,
-    "M": 1e6,
-    "k": 1e3,
-    "da": 10,
-    "d": 1e-1,
-    "c": 1e-2,
-    "m": 0.001,
-    "µ": 1e-6,
-    "u": 1e-6,
-    "n": 1e-9,
-    "p": 1e-12,
-    "f": 1e-15,
-    "a": 1e-18,
-    "": 1,
+    "Q": 1e30,  # Quetta
+    "R": 1e27,  # Ronna
+    "Y": 1e24,  # Yotta
+    "Z": 1e21,  # Zetta
+    "E": 1e18,  # Exa
+    "P": 1e15,  # Peta
+    "T": 1e12,  # Tera
+    "G": 1e9,  # Giga
+    "M": 1e6,  # Mega
+    "k": 1e3,  # Kilo
+    "h": 1e2,  # Hecto
+    "da": 1e1,  # Deca
+    "": 1e0,  # No prefix
+    "d": 1e-1,  # Deci
+    "c": 1e-2,  # Centi
+    "m": 1e-3,  # Milli
+    "µ": 1e-6,  # Micro
+    "u": 1e-6,  # Micro (same as µ)
+    "n": 1e-9,  # Nano
+    "p": 1e-12,  # Pico
+    "f": 1e-15,  # Femto
+    "a": 1e-18,  # Atto
+    "z": 1e-21,  # Zepto
+    "y": 1e-24,  # Yocto
+    "r": 1e-27,  # Ronto
+    "q": 1e-30,  # Quecto
 }
 
 
@@ -856,6 +1107,7 @@ def float_with_unit(quantity, regex_suffix, optional_unit=False):
     return validator
 
 
+bps = float_with_unit("bits per second", "(bps|bits/s|bit/s)?")
 frequency = float_with_unit("frequency", "(Hz|HZ|hz)?")
 resistance = float_with_unit("resistance", "(Ω|Ω|ohm|Ohm|OHM)?")
 current = float_with_unit("current", "(a|A|amp|Amp|amps|Amps|ampere|Ampere)?")
@@ -886,6 +1138,27 @@ def temperature(value):
     try:
         fahrenheit = _temperature_f(value)
         return (fahrenheit - 32) * (5 / 9)
+    except Invalid:
+        pass
+
+    raise err
+
+
+def temperature_delta(value):
+    err = None
+    try:
+        return _temperature_c(value)
+    except Invalid as orig_err:
+        err = orig_err
+
+    try:
+        return _temperature_k(value)
+    except Invalid:
+        pass
+
+    try:
+        fahrenheit = _temperature_f(value)
+        return fahrenheit * (5 / 9)
     except Invalid:
         pass
 
@@ -936,7 +1209,7 @@ def domain(value):
     if re.match(vol.DOMAIN_REGEX, value) is not None:
         return value
     try:
-        return str(ipv4(value))
+        return str(ipaddress(value))
     except Invalid as err:
         raise Invalid(f"Invalid domain: {value}") from err
 
@@ -966,25 +1239,70 @@ def ssid(value):
     return value
 
 
-def ipv4(value):
-    if isinstance(value, list):
-        parts = value
-    elif isinstance(value, str):
-        parts = value.split(".")
-    elif isinstance(value, IPAddress):
-        return value
-    else:
-        raise Invalid("IPv4 address must consist of either string or integer list")
-    if len(parts) != 4:
-        raise Invalid("IPv4 address must consist of four point-separated integers")
-    parts_ = list(map(int, parts))
-    if not all(0 <= x < 256 for x in parts_):
-        raise Invalid("IPv4 address parts must be in range from 0 to 255")
-    return IPAddress(*parts_)
+def ipv4address(value):
+    try:
+        address = IPv4Address(value)
+    except AddressValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv4 address") from exc
+    return address
+
+
+def ipv6address(value):
+    try:
+        address = IPv6Address(value)
+    except AddressValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv6 address") from exc
+    return address
+
+
+def ipv4address_multi_broadcast(value):
+    address = ipv4address(value)
+    if not (address.is_multicast or (address == IPv4Address("255.255.255.255"))):
+        raise Invalid(
+            f"{value} is not a multicasst address nor local broadcast address"
+        )
+    return address
+
+
+def ipaddress(value):
+    try:
+        address = ip_address(value)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IP address") from exc
+    return address
+
+
+def ipv4network(value):
+    """Validate that the value is a valid IPv4 network."""
+    try:
+        network = IPv4Network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv4 network") from exc
+    return network
+
+
+def ipv6network(value):
+    """Validate that the value is a valid IPv6 network."""
+    try:
+        network = IPv6Network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv6 network") from exc
+    return network
+
+
+def ipnetwork(value):
+    """Validate that the value is a valid IP network."""
+    try:
+        network = ip_network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IP network") from exc
+    return network
 
 
 def _valid_topic(value):
     """Validate that this is a valid topic name/filter."""
+    if value is None:  # Used to disable publishing and subscribing
+        return ""
     if isinstance(value, dict):
         raise Invalid("Can't use dictionary with topic")
     value = string(value)
@@ -1019,8 +1337,7 @@ def subscribe_topic(value):
         if index != len(value) - 1:
             # If there are multiple wildcards, this will also trigger
             raise Invalid(
-                "Multi-level wildcard must be the last "
-                "character in the topic filter."
+                "Multi-level wildcard must be the last character in the topic filter."
             )
         if len(value) > 1 and value[index - 1] != "/":
             raise Invalid("Multi-level wildcard must be after a topic level separator.")
@@ -1087,7 +1404,7 @@ def possibly_negative_percentage(value):
     if isinstance(value, str):
         try:
             if value.endswith("%"):
-                has_percent_sign = False
+                has_percent_sign = True
                 value = float(value[:-1].rstrip()) / 100.0
             else:
                 value = float(value)
@@ -1296,29 +1613,8 @@ def dimensions(value):
 
 
 def directory(value):
-    import json
-
     value = string(value)
     path = CORE.relative_config_path(value)
-
-    if CORE.vscode and (
-        not CORE.ace or os.path.abspath(path) == os.path.abspath(CORE.config_path)
-    ):
-        print(
-            json.dumps(
-                {
-                    "type": "check_directory_exists",
-                    "path": path,
-                }
-            )
-        )
-        data = json.loads(input())
-        assert data["type"] == "directory_exists_response"
-        if data["content"]:
-            return value
-        raise Invalid(
-            f"Could not find directory '{path}'. Please make sure it exists (full path: {os.path.abspath(path)})."
-        )
 
     if not os.path.exists(path):
         raise Invalid(
@@ -1332,29 +1628,8 @@ def directory(value):
 
 
 def file_(value):
-    import json
-
     value = string(value)
     path = CORE.relative_config_path(value)
-
-    if CORE.vscode and (
-        not CORE.ace or os.path.abspath(path) == os.path.abspath(CORE.config_path)
-    ):
-        print(
-            json.dumps(
-                {
-                    "type": "check_file_exists",
-                    "path": path,
-                }
-            )
-        )
-        data = json.loads(input())
-        assert data["type"] == "file_exists_response"
-        if data["content"]:
-            return value
-        raise Invalid(
-            f"Could not find file '{path}'. Please make sure it exists (full path: {os.path.abspath(path)})."
-        )
 
     if not os.path.exists(path):
         raise Invalid(
@@ -1407,6 +1682,10 @@ def typed_schema(schemas, **kwargs):
     """Create a schema that has a key to distinguish between schemas"""
     key = kwargs.pop("key", CONF_TYPE)
     default_schema_option = kwargs.pop("default_type", None)
+    enum_mapping = kwargs.pop("enum", None)
+    if enum_mapping is not None:
+        assert isinstance(enum_mapping, dict)
+        assert set(enum_mapping.keys()) == set(schemas.keys())
     key_validator = one_of(*schemas, **kwargs)
 
     def validator(value):
@@ -1417,6 +1696,9 @@ def typed_schema(schemas, **kwargs):
         if schema_option is None:
             raise Invalid(f"{key} not specified!")
         key_v = key_validator(schema_option)
+        if enum_mapping is not None:
+            key_v = add_class_to_obj(key_v, core.EnumValue)
+            key_v.enum_value = enum_mapping[key_v]
         value = Schema(schemas[key_v])(value)
         value[key] = key_v
         return value
@@ -1431,39 +1713,39 @@ class GenerateID(Optional):
         super().__init__(key, default=lambda: None)
 
 
+def _get_default_key(*args):
+    return ["_".join([CORE.target_platform] + list(args))]
+
+
 class SplitDefault(Optional):
     """Mark this key to have a split default for ESP8266/ESP32."""
 
-    def __init__(
-        self,
-        key,
-        esp8266=vol.UNDEFINED,
-        esp32=vol.UNDEFINED,
-        esp32_arduino=vol.UNDEFINED,
-        esp32_idf=vol.UNDEFINED,
-        rp2040=vol.UNDEFINED,
-    ):
+    def __init__(self, key, **kwargs):
         super().__init__(key)
-        self._esp8266_default = vol.default_factory(esp8266)
-        self._esp32_arduino_default = vol.default_factory(
-            esp32_arduino if esp32 is vol.UNDEFINED else esp32
-        )
-        self._esp32_idf_default = vol.default_factory(
-            esp32_idf if esp32 is vol.UNDEFINED else esp32
-        )
-        self._rp2040_default = vol.default_factory(rp2040)
+
+        self._defaults = {}
+
+        for platform_key, value in kwargs.items():
+            self._defaults[platform_key] = vol.default_factory(value)
 
     @property
     def default(self):
-        if CORE.is_esp8266:
-            return self._esp8266_default
-        if CORE.is_esp32 and CORE.using_arduino:
-            return self._esp32_arduino_default
-        if CORE.is_esp32 and CORE.using_esp_idf:
-            return self._esp32_idf_default
-        if CORE.is_rp2040:
-            return self._rp2040_default
-        raise NotImplementedError
+        keys = []
+        if CORE.is_esp32:
+            from esphome.components.esp32 import get_esp32_variant
+            from esphome.components.esp32.const import VARIANT_ESP32
+
+            variant = get_esp32_variant().replace(VARIANT_ESP32, "").lower()
+            framework = CORE.target_framework.replace("esp-", "")
+            if variant:
+                keys += _get_default_key(variant, framework)
+                keys += _get_default_key(variant)
+            keys += _get_default_key(framework)
+        keys += _get_default_key()
+        for key in keys:
+            if self._defaults.get(key) is not None:
+                return self._defaults[key]
+        return vol.default_factory(vol.UNDEFINED)
 
     @default.setter
     def default(self, value):
@@ -1491,6 +1773,26 @@ class OnlyWith(Optional):
         pass
 
 
+class OnlyWithout(Optional):
+    """Set the default value only if the given component is NOT loaded."""
+
+    def __init__(self, key, component, default=None):
+        super().__init__(key)
+        self._component = component
+        self._default = vol.default_factory(default)
+
+    @property
+    def default(self):
+        if self._component not in CORE.loaded_integrations:
+            return self._default
+        return vol.UNDEFINED
+
+    @default.setter
+    def default(self, value):
+        # Ignore default set from vol.Optional
+        pass
+
+
 def _entity_base_validator(config):
     if CONF_NAME not in config and CONF_ID not in config:
         raise Invalid("At least one of 'id:' or 'name:' is required!")
@@ -1501,6 +1803,8 @@ def _entity_base_validator(config):
         config[CONF_NAME] = id.id
         config[CONF_INTERNAL] = True
         return config
+    if config[CONF_NAME] is None:
+        config[CONF_NAME] = ""
     return config
 
 
@@ -1560,6 +1864,21 @@ def validate_registry_entry(name, registry):
     return validator
 
 
+def none(value):
+    if value in ("none", "None"):
+        return None
+    raise Invalid("Must be none")
+
+
+def requires_friendly_name(message):
+    def validate(value):
+        if CORE.friendly_name is None:
+            raise Invalid(message)
+        return value
+
+    return validate
+
+
 def validate_registry(name, registry):
     return ensure_list(validate_registry_entry(name, registry))
 
@@ -1580,7 +1899,7 @@ def maybe_simple_value(*validators, **kwargs):
     return validate
 
 
-_ENTITY_CATEGORIES = {
+ENTITY_CATEGORIES = {
     ENTITY_CATEGORY_NONE: cg.EntityCategory.ENTITY_CATEGORY_NONE,
     ENTITY_CATEGORY_CONFIG: cg.EntityCategory.ENTITY_CATEGORY_CONFIG,
     ENTITY_CATEGORY_DIAGNOSTIC: cg.EntityCategory.ENTITY_CATEGORY_DIAGNOSTIC,
@@ -1588,7 +1907,7 @@ _ENTITY_CATEGORIES = {
 
 
 def entity_category(value):
-    return enum(_ENTITY_CATEGORIES, lower=True)(value)
+    return enum(ENTITY_CATEGORIES, lower=True)(value)
 
 
 MQTT_COMPONENT_AVAILABILITY_SCHEMA = Schema(
@@ -1601,8 +1920,10 @@ MQTT_COMPONENT_AVAILABILITY_SCHEMA = Schema(
 
 MQTT_COMPONENT_SCHEMA = Schema(
     {
+        Optional(CONF_QOS): All(requires_component("mqtt"), mqtt_qos),
         Optional(CONF_RETAIN): All(requires_component("mqtt"), boolean),
         Optional(CONF_DISCOVERY): All(requires_component("mqtt"), boolean),
+        Optional(CONF_SUBSCRIBE_QOS): All(requires_component("mqtt"), mqtt_qos),
         Optional(CONF_STATE_TOPIC): All(requires_component("mqtt"), publish_topic),
         Optional(CONF_AVAILABILITY): All(
             requires_component("mqtt"), Any(None, MQTT_COMPONENT_AVAILABILITY_SCHEMA)
@@ -1617,13 +1938,28 @@ MQTT_COMMAND_COMPONENT_SCHEMA = MQTT_COMPONENT_SCHEMA.extend(
     }
 )
 
+
+def _validate_entity_name(value):
+    value = string(value)
+    try:
+        value = none(value)  # pylint: disable=assignment-from-none
+    except Invalid:
+        pass
+    else:
+        requires_friendly_name(
+            "Name cannot be None when esphome->friendly_name is not set!"
+        )(value)
+    return value
+
+
 ENTITY_BASE_SCHEMA = Schema(
     {
-        Optional(CONF_NAME): string,
+        Optional(CONF_NAME): _validate_entity_name,
         Optional(CONF_INTERNAL): boolean,
         Optional(CONF_DISABLED_BY_DEFAULT, default=False): boolean,
         Optional(CONF_ICON): icon,
         Optional(CONF_ENTITY_CATEGORY): entity_category,
+        Optional(CONF_DEVICE_ID): sub_device_id,
     }
 )
 
@@ -1663,13 +1999,13 @@ def url(value):
     except ValueError as e:
         raise Invalid("Not a valid URL") from e
 
-    if not parsed.scheme or not parsed.netloc:
-        raise Invalid("Expected a URL scheme and host")
-    return parsed.geturl()
+    if parsed.scheme and parsed.netloc or parsed.scheme == "file":
+        return parsed.geturl()
+    raise Invalid("Expected a file scheme or a URL scheme with host")
 
 
 def git_ref(value):
-    if re.match(r"[a-zA-Z0-9\-_.\./]+", value) is None:
+    if re.match(r"[a-zA-Z0-9_./-]+", value) is None:
         raise Invalid("Not a valid git ref")
     return value
 
@@ -1682,32 +2018,22 @@ def source_refresh(value: str):
     return positive_time_period_seconds(value)
 
 
-@dataclass(frozen=True, order=True)
-class Version:
-    major: int
-    minor: int
-    patch: int
-
-    def __str__(self):
-        return f"{self.major}.{self.minor}.{self.patch}"
-
-    @classmethod
-    def parse(cls, value: str) -> "Version":
-        match = re.match(r"^(\d+).(\d+).(\d+)-?\w*$", value)
-        if match is None:
-            raise ValueError(f"Not a valid version number {value}")
-        major = int(match[1])
-        minor = int(match[2])
-        patch = int(match[3])
-        return Version(major=major, minor=minor, patch=patch)
-
-
 def version_number(value):
     value = string_strict(value)
     try:
         return str(Version.parse(value))
     except ValueError as e:
         raise Invalid("Not a valid version number") from e
+
+
+def validate_esphome_version(value: str):
+    min_version = Version.parse(value)
+    current_version = Version.parse(ESPHOME_VERSION)
+    if current_version < min_version:
+        raise Invalid(
+            f"Your ESPHome version is too old. Please update to at least {min_version}"
+        )
+    return value
 
 
 def platformio_version_constraint(value):
@@ -1731,54 +2057,28 @@ def platformio_version_constraint(value):
 
 def require_framework_version(
     *,
-    esp_idf=None,
-    esp32_arduino=None,
-    esp8266_arduino=None,
-    rp2040_arduino=None,
     max_version=False,
     extra_message=None,
+    **kwargs,
 ):
     def validator(value):
         core_data = CORE.data[KEY_CORE]
         framework = core_data[KEY_TARGET_FRAMEWORK]
-        if framework == "esp-idf":
-            if esp_idf is None:
-                msg = "This feature is incompatible with esp-idf"
-                if extra_message:
-                    msg += f". {extra_message}"
-                raise Invalid(msg)
-            required = esp_idf
-        elif CORE.is_esp32 and framework == "arduino":
-            if esp32_arduino is None:
-                msg = "This feature is incompatible with ESP32 using arduino framework"
-                if extra_message:
-                    msg += f". {extra_message}"
-                raise Invalid(msg)
-            required = esp32_arduino
-        elif CORE.is_esp8266 and framework == "arduino":
-            if esp8266_arduino is None:
-                msg = "This feature is incompatible with ESP8266"
-                if extra_message:
-                    msg += f". {extra_message}"
-                raise Invalid(msg)
-            required = esp8266_arduino
-        elif CORE.is_rp2040 and framework == "arduino":
-            if rp2040_arduino is None:
-                msg = "This feature is incompatible with RP2040"
-                if extra_message:
-                    msg += f". {extra_message}"
-                raise Invalid(msg)
-            required = rp2040_arduino
-        else:
-            raise Invalid(
-                f"""
-            Internal Error: require_framework_version does not support this platform configuration
-                platform: {core_data[KEY_TARGET_PLATFORM]}
-                framework: {framework}
 
-            Please report this issue on GitHub -> https://github.com/esphome/issues/issues/new?template=bug_report.yml.
-            """
-            )
+        if CORE.is_host and framework == "host":
+            key = "host"
+        elif framework == "esp-idf":
+            key = "esp_idf"
+        else:
+            key = CORE.target_platform + "_" + framework
+
+        if key not in kwargs:
+            msg = f"This feature is incompatible with {CORE.target_platform.upper()} using {framework} framework"
+            if extra_message:
+                msg += f". {extra_message}"
+            raise Invalid(msg)
+
+        required = kwargs[key]
 
         if max_version:
             if core_data[KEY_FRAMEWORK_VERSION] > required:
@@ -1813,7 +2113,99 @@ def require_esphome_version(year, month, patch):
 
 @contextmanager
 def suppress_invalid():
-    try:
+    with suppress(vol.Invalid):
         yield
-    except vol.Invalid:
+
+
+GIT_SCHEMA = Schema(
+    {
+        Required(CONF_URL): url,
+        Optional(CONF_REF): git_ref,
+        Optional(CONF_USERNAME): string,
+        Optional(CONF_PASSWORD): string,
+        Optional(CONF_PATH): string,
+    }
+)
+LOCAL_SCHEMA = Schema(
+    {
+        Required(CONF_PATH): directory,
+    }
+)
+
+
+def validate_source_shorthand(value):
+    if not isinstance(value, str):
+        raise Invalid("Shorthand only for strings")
+    try:
+        return SOURCE_SCHEMA({CONF_TYPE: TYPE_LOCAL, CONF_PATH: value})
+    except Invalid:
         pass
+    # Regex for GitHub repo name with optional branch/tag
+    # Note: git allows other branch/tag names as well, but never seen them used before
+    m = re.match(
+        r"github://(?:([a-zA-Z0-9\-]+)/([a-zA-Z0-9\-\._]+)(?:@([a-zA-Z0-9\-_.\./]+))?|pr#([0-9]+))",
+        value,
+    )
+    if m is None:
+        raise Invalid(
+            "Source is not a file system path, in expected github://username/name[@branch-or-tag] or github://pr#1234 format!"
+        )
+    if m.group(4):
+        conf = {
+            CONF_TYPE: TYPE_GIT,
+            CONF_URL: "https://github.com/esphome/esphome.git",
+            CONF_REF: f"pull/{m.group(4)}/head",
+        }
+    else:
+        conf = {
+            CONF_TYPE: TYPE_GIT,
+            CONF_URL: f"https://github.com/{m.group(1)}/{m.group(2)}.git",
+        }
+        if m.group(3):
+            conf[CONF_REF] = m.group(3)
+
+    return SOURCE_SCHEMA(conf)
+
+
+SOURCE_SCHEMA = Any(
+    validate_source_shorthand,
+    typed_schema(
+        {
+            TYPE_GIT: GIT_SCHEMA,
+            TYPE_LOCAL: LOCAL_SCHEMA,
+        }
+    ),
+)
+
+
+def rename_key(old_key, new_key):
+    def validator(config: dict) -> dict:
+        config = config.copy()
+        if old_key in config:
+            config[new_key] = config.pop(old_key)
+        return config
+
+    return validator
+
+
+# Remove before 2025.11.0
+def deprecated_schema_constant(entity_type: str):
+    def validator(config):
+        type: str = "unknown"
+        if (id := config.get(CONF_ID)) is not None and isinstance(id, core.ID):
+            type = str(id.type).split("::", maxsplit=1)[0]
+        _LOGGER.warning(
+            "Using `%s.%s_SCHEMA` is deprecated and will be removed in ESPHome 2025.11.0. "
+            "Please use `%s.%s_schema(...)` instead. "
+            "If you are seeing this, report an issue to the external_component author and ask them to update it. "
+            "https://developers.esphome.io/blog/2025/05/14/_schema-deprecations/. "
+            "Component using this schema: %s",
+            entity_type,
+            entity_type.upper(),
+            entity_type,
+            entity_type,
+            type,
+        )
+        return config
+
+    return validator

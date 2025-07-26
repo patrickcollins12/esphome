@@ -1,15 +1,15 @@
-#ifdef USE_ARDUINO
-
+#include <cstring>
 #include "e131.h"
+#ifdef USE_NETWORK
+#include "esphome/components/network/ip_address.h"
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
-#include "esphome/components/network/ip_address.h"
-#include <cstring>
+#include "esphome/core/helpers.h"
 
-#include <lwip/init.h>
-#include <lwip/ip_addr.h>
-#include <lwip/ip4_addr.h>
 #include <lwip/igmp.h>
+#include <lwip/init.h>
+#include <lwip/ip4_addr.h>
+#include <lwip/ip_addr.h>
 
 namespace esphome {
 namespace e131 {
@@ -62,17 +62,21 @@ const size_t E131_MIN_PACKET_SIZE = reinterpret_cast<size_t>(&((E131RawPacket *)
 bool E131Component::join_igmp_groups_() {
   if (listen_method_ != E131_MULTICAST)
     return false;
-  if (!udp_)
+  if (this->socket_ == nullptr)
     return false;
 
   for (auto universe : universe_consumers_) {
     if (!universe.second)
       continue;
 
-    ip4_addr_t multicast_addr = {static_cast<uint32_t>(
-        network::IPAddress(239, 255, ((universe.first >> 8) & 0xff), ((universe.first >> 0) & 0xff)))};
+    ip4_addr_t multicast_addr =
+        network::IPAddress(239, 255, ((universe.first >> 8) & 0xff), ((universe.first >> 0) & 0xff));
 
-    auto err = igmp_joingroup(IP4_ADDR_ANY4, &multicast_addr);
+    err_t err;
+    {
+      LwIPLock lock;
+      err = igmp_joingroup(IP4_ADDR_ANY4, &multicast_addr);
+    }
 
     if (err) {
       ESP_LOGW(TAG, "IGMP join for %d universe of E1.31 failed. Multicast might not work.", universe.first);
@@ -103,9 +107,9 @@ void E131Component::leave_(int universe) {
   }
 
   if (listen_method_ == E131_MULTICAST) {
-    ip4_addr_t multicast_addr = {
-        static_cast<uint32_t>(network::IPAddress(239, 255, ((universe >> 8) & 0xff), ((universe >> 0) & 0xff)))};
+    ip4_addr_t multicast_addr = network::IPAddress(239, 255, ((universe >> 8) & 0xff), ((universe >> 0) & 0xff));
 
+    LwIPLock lock;
     igmp_leavegroup(IP4_ADDR_ANY4, &multicast_addr);
   }
 
@@ -140,5 +144,4 @@ bool E131Component::packet_(const std::vector<uint8_t> &data, int &universe, E13
 
 }  // namespace e131
 }  // namespace esphome
-
-#endif  // USE_ARDUINO
+#endif

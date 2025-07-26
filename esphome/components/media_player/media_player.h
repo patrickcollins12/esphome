@@ -10,7 +10,8 @@ enum MediaPlayerState : uint8_t {
   MEDIA_PLAYER_STATE_NONE = 0,
   MEDIA_PLAYER_STATE_IDLE = 1,
   MEDIA_PLAYER_STATE_PLAYING = 2,
-  MEDIA_PLAYER_STATE_PAUSED = 3
+  MEDIA_PLAYER_STATE_PAUSED = 3,
+  MEDIA_PLAYER_STATE_ANNOUNCING = 4
 };
 const char *media_player_state_to_string(MediaPlayerState state);
 
@@ -23,8 +24,25 @@ enum MediaPlayerCommand : uint8_t {
   MEDIA_PLAYER_COMMAND_TOGGLE = 5,
   MEDIA_PLAYER_COMMAND_VOLUME_UP = 6,
   MEDIA_PLAYER_COMMAND_VOLUME_DOWN = 7,
+  MEDIA_PLAYER_COMMAND_ENQUEUE = 8,
+  MEDIA_PLAYER_COMMAND_REPEAT_ONE = 9,
+  MEDIA_PLAYER_COMMAND_REPEAT_OFF = 10,
+  MEDIA_PLAYER_COMMAND_CLEAR_PLAYLIST = 11,
 };
 const char *media_player_command_to_string(MediaPlayerCommand command);
+
+enum class MediaPlayerFormatPurpose : uint8_t {
+  PURPOSE_DEFAULT = 0,
+  PURPOSE_ANNOUNCEMENT = 1,
+};
+
+struct MediaPlayerSupportedFormat {
+  std::string format;
+  uint32_t sample_rate;
+  uint32_t num_channels;
+  MediaPlayerFormatPurpose purpose;
+  uint32_t sample_bytes;
+};
 
 class MediaPlayer;
 
@@ -36,8 +54,11 @@ class MediaPlayerTraits {
 
   bool get_supports_pause() const { return this->supports_pause_; }
 
+  std::vector<MediaPlayerSupportedFormat> &get_supported_formats() { return this->supported_formats_; }
+
  protected:
   bool supports_pause_{false};
+  std::vector<MediaPlayerSupportedFormat> supported_formats_{};
 };
 
 class MediaPlayerCall {
@@ -51,12 +72,14 @@ class MediaPlayerCall {
   MediaPlayerCall &set_media_url(const std::string &url);
 
   MediaPlayerCall &set_volume(float volume);
+  MediaPlayerCall &set_announcement(bool announce);
 
   void perform();
 
-  const optional<MediaPlayerCommand> &get_command() const { return command_; }
-  const optional<std::string> &get_media_url() const { return media_url_; }
-  const optional<float> &get_volume() const { return volume_; }
+  const optional<MediaPlayerCommand> &get_command() const { return this->command_; }
+  const optional<std::string> &get_media_url() const { return this->media_url_; }
+  const optional<float> &get_volume() const { return this->volume_; }
+  const optional<bool> &get_announcement() const { return this->announcement_; }
 
  protected:
   void validate_();
@@ -64,6 +87,7 @@ class MediaPlayerCall {
   optional<MediaPlayerCommand> command_;
   optional<std::string> media_url_;
   optional<float> volume_;
+  optional<bool> announcement_;
 };
 
 class MediaPlayer : public EntityBase {

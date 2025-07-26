@@ -3,6 +3,7 @@
 #include <queue>
 #include <utility>
 #include <vector>
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 
@@ -100,6 +101,24 @@ class MedianFilter : public Filter {
   size_t send_every_;
   size_t send_at_;
   size_t window_size_;
+};
+
+/** Simple skip filter.
+ *
+ * Skips the first N values, then passes everything else.
+ */
+class SkipInitialFilter : public Filter {
+ public:
+  /** Construct a SkipInitialFilter.
+   *
+   * @param num_to_ignore How many values to ignore before the filter becomes a no-op.
+   */
+  explicit SkipInitialFilter(size_t num_to_ignore);
+
+  optional<float> new_value(float value) override;
+
+ protected:
+  size_t num_to_ignore_;
 };
 
 /** Simple min filter.
@@ -227,6 +246,7 @@ class ThrottleAverageFilter : public Filter, public Component {
   uint32_t time_period_;
   float sum_{0.0f};
   unsigned int n_{0};
+  bool have_nan_{false};
 };
 
 using lambda_filter_t = std::function<optional<float>(float)>;
@@ -254,34 +274,33 @@ class LambdaFilter : public Filter {
 /// A simple filter that adds `offset` to each value it receives.
 class OffsetFilter : public Filter {
  public:
-  explicit OffsetFilter(float offset);
+  explicit OffsetFilter(TemplatableValue<float> offset);
 
   optional<float> new_value(float value) override;
 
  protected:
-  float offset_;
+  TemplatableValue<float> offset_;
 };
 
 /// A simple filter that multiplies to each value it receives by `multiplier`.
 class MultiplyFilter : public Filter {
  public:
-  explicit MultiplyFilter(float multiplier);
-
+  explicit MultiplyFilter(TemplatableValue<float> multiplier);
   optional<float> new_value(float value) override;
 
  protected:
-  float multiplier_;
+  TemplatableValue<float> multiplier_;
 };
 
 /// A simple filter that only forwards the filter chain if it doesn't receive `value_to_filter_out`.
 class FilterOutValueFilter : public Filter {
  public:
-  explicit FilterOutValueFilter(float value_to_filter_out);
+  explicit FilterOutValueFilter(std::vector<TemplatableValue<float>> values_to_filter_out);
 
   optional<float> new_value(float value) override;
 
  protected:
-  float value_to_filter_out_;
+  std::vector<TemplatableValue<float>> values_to_filter_out_;
 };
 
 class ThrottleFilter : public Filter {
@@ -293,6 +312,19 @@ class ThrottleFilter : public Filter {
  protected:
   uint32_t last_input_{0};
   uint32_t min_time_between_inputs_;
+};
+
+class TimeoutFilter : public Filter, public Component {
+ public:
+  explicit TimeoutFilter(uint32_t time_period, TemplatableValue<float> new_value);
+
+  optional<float> new_value(float value) override;
+
+  float get_setup_priority() const override;
+
+ protected:
+  uint32_t time_period_;
+  TemplatableValue<float> value_;
 };
 
 class DebounceFilter : public Filter, public Component {
@@ -325,12 +357,14 @@ class HeartbeatFilter : public Filter, public Component {
 
 class DeltaFilter : public Filter {
  public:
-  explicit DeltaFilter(float min_delta);
+  explicit DeltaFilter(float delta, bool percentage_mode);
 
   optional<float> new_value(float value) override;
 
  protected:
-  float min_delta_;
+  float delta_;
+  float current_delta_;
+  bool percentage_mode_;
   float last_value_{NAN};
 };
 
@@ -353,17 +387,18 @@ class OrFilter : public Filter {
   };
 
   std::vector<Filter *> filters_;
+  bool has_value_{false};
   PhiNode phi_;
 };
 
 class CalibrateLinearFilter : public Filter {
  public:
-  CalibrateLinearFilter(float slope, float bias);
+  CalibrateLinearFilter(std::vector<std::array<float, 3>> linear_functions)
+      : linear_functions_(std::move(linear_functions)) {}
   optional<float> new_value(float value) override;
 
  protected:
-  float slope_;
-  float bias_;
+  std::vector<std::array<float, 3>> linear_functions_;
 };
 
 class CalibratePolynomialFilter : public Filter {
@@ -373,6 +408,57 @@ class CalibratePolynomialFilter : public Filter {
 
  protected:
   std::vector<float> coefficients_;
+};
+
+class ClampFilter : public Filter {
+ public:
+  ClampFilter(float min, float max, bool ignore_out_of_range);
+  optional<float> new_value(float value) override;
+
+ protected:
+  float min_{NAN};
+  float max_{NAN};
+  bool ignore_out_of_range_;
+};
+
+class RoundFilter : public Filter {
+ public:
+  explicit RoundFilter(uint8_t precision);
+  optional<float> new_value(float value) override;
+
+ protected:
+  uint8_t precision_;
+};
+
+class RoundMultipleFilter : public Filter {
+ public:
+  explicit RoundMultipleFilter(float multiple);
+  optional<float> new_value(float value) override;
+
+ protected:
+  float multiple_;
+};
+
+class ToNTCResistanceFilter : public Filter {
+ public:
+  ToNTCResistanceFilter(double a, double b, double c) : a_(a), b_(b), c_(c) {}
+  optional<float> new_value(float value) override;
+
+ protected:
+  double a_;
+  double b_;
+  double c_;
+};
+
+class ToNTCTemperatureFilter : public Filter {
+ public:
+  ToNTCTemperatureFilter(double a, double b, double c) : a_(a), b_(b), c_(c) {}
+  optional<float> new_value(float value) override;
+
+ protected:
+  double a_;
+  double b_;
+  double c_;
 };
 
 }  // namespace sensor

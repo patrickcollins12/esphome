@@ -1,9 +1,9 @@
 import abc
+from collections.abc import Callable, Sequence
 import inspect
 import math
 import re
-from collections.abc import Generator, Sequence
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 from esphome.core import (
     CORE,
@@ -17,6 +17,7 @@ from esphome.core import (
     TimePeriodMicroseconds,
     TimePeriodMilliseconds,
     TimePeriodMinutes,
+    TimePeriodNanoseconds,
     TimePeriodSeconds,
 )
 from esphome.helpers import cpp_string_escape, indent_all_but_first_and_last
@@ -34,19 +35,19 @@ class Expression(abc.ABC):
         """
 
 
-SafeExpType = Union[
-    Expression,
-    bool,
-    str,
-    str,
-    int,
-    float,
-    TimePeriod,
-    type[bool],
-    type[int],
-    type[float],
-    Sequence[Any],
-]
+SafeExpType = (
+    Expression
+    | bool
+    | str
+    | str
+    | int
+    | float
+    | TimePeriod
+    | type[bool]
+    | type[int]
+    | type[float]
+    | Sequence[Any]
+)
 
 
 class RawExpression(Expression):
@@ -89,7 +90,7 @@ class VariableDeclarationExpression(Expression):
 class ExpressionList(Expression):
     __slots__ = ("args",)
 
-    def __init__(self, *args: Optional[SafeExpType]):
+    def __init__(self, *args: SafeExpType | None):
         # Remove every None on end
         args = list(args)
         while args and args[-1] is None:
@@ -138,7 +139,7 @@ class CallExpression(Expression):
 class StructInitializer(Expression):
     __slots__ = ("base", "args")
 
-    def __init__(self, base: Expression, *args: tuple[str, Optional[SafeExpType]]):
+    def __init__(self, base: Expression, *args: tuple[str, SafeExpType | None]):
         self.base = base
         # TODO: args is always a Tuple, is this check required?
         if not isinstance(args, OrderedDict):
@@ -174,10 +175,9 @@ class ArrayInitializer(Expression):
         if not self.args:
             return "{}"
         if self.multiline:
-            cpp = "{\n"
-            for arg in self.args:
-                cpp += f"  {arg},\n"
-            cpp += "}"
+            cpp = "{\n  "
+            cpp += ",\n  ".join(str(arg) for arg in self.args)
+            cpp += ",\n}"
         else:
             cpp = f"{{{', '.join(str(arg) for arg in self.args)}}}"
         return cpp
@@ -197,9 +197,7 @@ class ParameterExpression(Expression):
 class ParameterListExpression(Expression):
     __slots__ = ("parameters",)
 
-    def __init__(
-        self, *parameters: Union[ParameterExpression, tuple[SafeExpType, str]]
-    ):
+    def __init__(self, *parameters: ParameterExpression | tuple[SafeExpType, str]):
         self.parameters = []
         for parameter in parameters:
             if not isinstance(parameter, ParameterExpression):
@@ -352,6 +350,8 @@ def safe_exp(obj: SafeExpType) -> Expression:
         return IntLiteral(obj)
     if isinstance(obj, float):
         return FloatLiteral(obj)
+    if isinstance(obj, TimePeriodNanoseconds):
+        return IntLiteral(int(obj.total_nanoseconds))
     if isinstance(obj, TimePeriodMicroseconds):
         return IntLiteral(int(obj.total_microseconds))
     if isinstance(obj, TimePeriodMilliseconds):
@@ -360,7 +360,7 @@ def safe_exp(obj: SafeExpType) -> Expression:
         return IntLiteral(int(obj.total_seconds))
     if isinstance(obj, TimePeriodMinutes):
         return IntLiteral(int(obj.total_minutes))
-    if isinstance(obj, (tuple, list)):
+    if isinstance(obj, tuple | list):
         return ArrayInitializer(*[safe_exp(o) for o in obj])
     if obj is bool:
         return bool_
@@ -416,7 +416,9 @@ class LineComment(Statement):
         self.value = value
 
     def __str__(self):
-        parts = re.sub(r"\\\s*\n", r"<cont>\n", self.value, re.MULTILINE).split("\n")
+        parts = re.sub(r"\\\s*\n", r"<cont>\n", self.value, flags=re.MULTILINE).split(
+            "\n"
+        )
         parts = [f"// {x}" for x in parts]
         return "\n".join(parts)
 
@@ -459,7 +461,7 @@ def static_const_array(id_, rhs) -> "MockObj":
     return obj
 
 
-def statement(expression: Union[Expression, Statement]) -> Statement:
+def statement(expression: Expression | Statement) -> Statement:
     """Convert expression into a statement unless is already a statement."""
     if isinstance(expression, Statement):
         return expression
@@ -475,8 +477,9 @@ def variable(
     :param rhs: The expression to place on the right hand side of the assignment.
     :param type_: Manually define a type for the variable, only use this when it's not possible
       to do so during config validation phase (for example because of template arguments).
+    :param register: If true register the variable with the core
 
-    :returns The new variable as a MockObj.
+    :return: The new variable as a MockObj.
     """
     assert isinstance(id_, ID)
     rhs = safe_exp(rhs)
@@ -490,9 +493,7 @@ def variable(
     return obj
 
 
-def with_local_variable(
-    id_: ID, rhs: SafeExpType, callback: Callable[["MockObj"], None], *args
-) -> None:
+def with_local_variable(id_: ID, rhs: SafeExpType, callback: Callable, *args) -> None:
     """Declare a new variable, not pointer type, in the code generation, within a scoped block
     The variable is only usable within the callback
     The callback cannot be async.
@@ -505,9 +506,9 @@ def with_local_variable(
     """
 
     # throw if the callback is async:
-    assert not inspect.iscoroutinefunction(
-        callback
-    ), "with_local_variable() callback cannot be async!"
+    assert not inspect.iscoroutinefunction(callback), (
+        "with_local_variable() callback cannot be async!"
+    )
 
     CORE.add(RawStatement("{"))  # output opening curly brace
     obj = variable(id_, rhs, None, True)
@@ -524,7 +525,7 @@ def new_variable(id_: ID, rhs: SafeExpType, type_: "MockObj" = None) -> "MockObj
     :param type_: Manually define a type for the variable, only use this when it's not possible
       to do so during config validation phase (for example because of template arguments).
 
-    :returns The new variable as a MockObj.
+    :return: The new variable as a MockObj.
     """
     assert isinstance(id_, ID)
     rhs = safe_exp(rhs)
@@ -547,7 +548,7 @@ def Pvariable(id_: ID, rhs: SafeExpType, type_: "MockObj" = None) -> "MockObj":
     :param type_: Manually define a type for the variable, only use this when it's not possible
       to do so during config validation phase (for example because of template arguments).
 
-    :returns The new variable as a MockObj.
+    :return: The new variable as a MockObj.
     """
     rhs = safe_exp(rhs)
     obj = MockObj(id_, "->")
@@ -568,7 +569,7 @@ def new_Pvariable(id_: ID, *args: SafeExpType) -> Pvariable:
     :param id_: The ID used to declare the variable (also specifies the type).
     :param args: The values to pass to the constructor.
 
-    :returns The new variable as a MockObj.
+    :return: The new variable as a MockObj.
     """
     if args and isinstance(args[0], TemplateArguments):
         id_ = id_.copy()
@@ -578,25 +579,26 @@ def new_Pvariable(id_: ID, *args: SafeExpType) -> Pvariable:
     return Pvariable(id_, rhs)
 
 
-def add(expression: Union[Expression, Statement]):
+def add(expression: Expression | Statement, prepend: bool = False):
     """Add an expression to the codegen section.
 
     After this is called, the given given expression will
     show up in the setup() function after this has been called.
     """
-    CORE.add(expression)
+    CORE.add(expression, prepend)
 
 
-def add_global(expression: Union[SafeExpType, Statement]):
+def add_global(expression: SafeExpType | Statement, prepend: bool = False):
     """Add an expression to the codegen global storage (above setup())."""
-    CORE.add_global(expression)
+    CORE.add_global(expression, prepend)
 
 
-def add_library(name: str, version: Optional[str], repository: Optional[str] = None):
+def add_library(name: str, version: str | None, repository: str | None = None):
     """Add a library to the codegen library storage.
 
     :param name: The name of the library (for example 'AsyncTCP')
     :param version: The version of the library, may be None.
+    :param repository: The repository for the library
     """
     CORE.add_library(Library(name, version, repository))
 
@@ -604,6 +606,23 @@ def add_library(name: str, version: Optional[str], repository: Optional[str] = N
 def add_build_flag(build_flag: str):
     """Add a global build flag to the compiler flags."""
     CORE.add_build_flag(build_flag)
+
+
+def add_build_unflag(build_unflag: str) -> None:
+    """Add a global build unflag to the compiler flags."""
+    CORE.add_build_unflag(build_unflag)
+
+
+def set_cpp_standard(standard: str) -> None:
+    """Set C++ standard with compiler flag `-std={standard}`."""
+    CORE.add_build_unflag("-std=gnu++11")
+    CORE.add_build_unflag("-std=gnu++14")
+    CORE.add_build_unflag("-std=gnu++17")
+    CORE.add_build_unflag("-std=gnu++23")
+    CORE.add_build_unflag("-std=gnu++2a")
+    CORE.add_build_unflag("-std=gnu++2b")
+    CORE.add_build_unflag("-std=gnu++2c")
+    CORE.add_build_flag(f"-std={standard}")
 
 
 def add_define(name: str, value: SafeExpType = None):
@@ -617,7 +636,7 @@ def add_define(name: str, value: SafeExpType = None):
         CORE.add_define(Define(name, safe_exp(value)))
 
 
-def add_platformio_option(key: str, value: Union[str, list[str]]):
+def add_platformio_option(key: str, value: str | list[str]):
     CORE.add_platformio_option(key, value)
 
 
@@ -652,7 +671,7 @@ async def process_lambda(
     parameters: list[tuple[SafeExpType, str]],
     capture: str = "=",
     return_type: SafeExpType = None,
-) -> Generator[LambdaExpression, None, None]:
+) -> LambdaExpression | None:
     """Process the given lambda value into a LambdaExpression.
 
     This is a coroutine because lambdas can depend on other IDs,
@@ -664,10 +683,14 @@ async def process_lambda(
     :param return_type: The return type of the lambda.
     :return: The generated lambda expression.
     """
-    from esphome.components.globals import GlobalsComponent, RestoringGlobalsComponent
+    from esphome.components.globals import (
+        GlobalsComponent,
+        RestoringGlobalsComponent,
+        RestoringGlobalStringComponent,
+    )
 
     if value is None:
-        return
+        return None
     parts = value.parts[:]
     for i, id in enumerate(value.requires_ids):
         full_id, var = await get_variable_with_full_id(id)
@@ -677,6 +700,7 @@ async def process_lambda(
             and (
                 full_id.type.inherits_from(GlobalsComponent)
                 or full_id.type.inherits_from(RestoringGlobalsComponent)
+                or full_id.type.inherits_from(RestoringGlobalStringComponent)
             )
         ):
             parts[i * 3 + 1] = var.value()
@@ -704,8 +728,8 @@ def is_template(value):
 async def templatable(
     value: Any,
     args: list[tuple[SafeExpType, str]],
-    output_type: Optional[SafeExpType],
-    to_exp: Any = None,
+    output_type: SafeExpType | None,
+    to_exp: Callable | dict = None,
 ):
     """Generate code for a templatable config option.
 
@@ -782,13 +806,17 @@ class MockObj(Expression):
 
     def class_(self, name: str, *parents: "MockObjClass") -> "MockObjClass":
         op = "" if self.op == "" else "::"
-        return MockObjClass(f"{self.base}{op}{name}", ".", parents=parents)
+        result = MockObjClass(f"{self.base}{op}{name}", ".", parents=parents)
+        CORE.id_classes[str(result)] = result
+        return result
 
     def struct(self, name: str) -> "MockObjClass":
         return self.class_(name)
 
     def enum(self, name: str, is_class: bool = False) -> "MockObj":
-        return MockObjEnum(enum=name, is_class=is_class, base=self.base, op=self.op)
+        result = MockObjEnum(enum=name, is_class=is_class, base=self.base, op=self.op)
+        CORE.id_classes[str(result)] = result
+        return result
 
     def operator(self, name: str) -> "MockObj":
         """Various other operations.
@@ -810,7 +838,7 @@ class MockObj(Expression):
         assert self.op == "::"
         return MockObj(f"using namespace {self.base}")
 
-    def __getitem__(self, item: Union[str, Expression]) -> "MockObj":
+    def __getitem__(self, item: str | Expression) -> "MockObj":
         next_op = "."
         if isinstance(item, str) and item.startswith("P"):
             item = item[1:]
@@ -1009,10 +1037,7 @@ class MockObjClass(MockObj):
     def inherits_from(self, other: "MockObjClass") -> bool:
         if str(self) == str(other):
             return True
-        for parent in self._parents:
-            if str(parent) == str(other):
-                return True
-        return False
+        return any(str(parent) == str(other) for parent in self._parents)
 
     def template(self, *args: SafeExpType) -> "MockObjClass":
         if len(args) != 1 or not isinstance(args[0], TemplateArguments):

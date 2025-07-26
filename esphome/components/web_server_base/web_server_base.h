@@ -1,17 +1,24 @@
 #pragma once
-
-#ifdef USE_ARDUINO
-
+#include "esphome/core/defines.h"
+#ifdef USE_NETWORK
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "esphome/core/component.h"
 
+#ifdef USE_ARDUINO
 #include <ESPAsyncWebServer.h>
+#elif USE_ESP_IDF
+#include "esphome/core/hal.h"
+#include "esphome/components/web_server_idf/web_server_idf.h"
+#endif
 
 namespace esphome {
 namespace web_server_base {
+
+class WebServerBase;
+extern WebServerBase *global_web_server_base;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 namespace internal {
 
@@ -19,7 +26,7 @@ class MiddlewareHandler : public AsyncWebHandler {
  public:
   MiddlewareHandler(AsyncWebHandler *next) : next_(next) {}
 
-  bool canHandle(AsyncWebServerRequest *request) override { return next_->canHandle(request); }
+  bool canHandle(AsyncWebServerRequest *request) const override { return next_->canHandle(request); }
   void handleRequest(AsyncWebServerRequest *request) override { next_->handleRequest(request); }
   void handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len,
                     bool final) override {
@@ -28,7 +35,7 @@ class MiddlewareHandler : public AsyncWebHandler {
   void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override {
     next_->handleBody(request, data, len, index, total);
   }
-  bool isRequestHandlerTrivial() override { return next_->isRequestHandlerTrivial(); }
+  bool isRequestHandlerTrivial() const override { return next_->isRequestHandlerTrivial(); }
 
  protected:
   AsyncWebHandler *next_;
@@ -83,6 +90,7 @@ class WebServerBase : public Component {
       return;
     }
     this->server_ = std::make_shared<AsyncWebServer>(this->port_);
+    // All content is controlled and created by user - so allowing all origins is fine here.
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     this->server_->begin();
 
@@ -105,14 +113,10 @@ class WebServerBase : public Component {
 
   void add_handler(AsyncWebHandler *handler);
 
-  void add_ota_handler();
-
   void set_port(uint16_t port) { port_ = port; }
   uint16_t get_port() const { return port_; }
 
  protected:
-  friend class OTARequestHandler;
-
   int initialized_{0};
   uint16_t port_{80};
   std::shared_ptr<AsyncWebServer> server_{nullptr};
@@ -120,25 +124,6 @@ class WebServerBase : public Component {
   internal::Credentials credentials_;
 };
 
-class OTARequestHandler : public AsyncWebHandler {
- public:
-  OTARequestHandler(WebServerBase *parent) : parent_(parent) {}
-  void handleRequest(AsyncWebServerRequest *request) override;
-  void handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len,
-                    bool final) override;
-  bool canHandle(AsyncWebServerRequest *request) override {
-    return request->url() == "/update" && request->method() == HTTP_POST;
-  }
-
-  bool isRequestHandlerTrivial() override { return false; }
-
- protected:
-  uint32_t last_ota_progress_{0};
-  uint32_t ota_read_length_{0};
-  WebServerBase *parent_;
-};
-
 }  // namespace web_server_base
 }  // namespace esphome
-
-#endif  // USE_ARDUINO
+#endif

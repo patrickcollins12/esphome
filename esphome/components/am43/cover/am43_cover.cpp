@@ -12,8 +12,10 @@ using namespace esphome::cover;
 
 void Am43Component::dump_config() {
   LOG_COVER("", "AM43 Cover", this);
-  ESP_LOGCONFIG(TAG, "  Device Pin: %d", this->pin_);
-  ESP_LOGCONFIG(TAG, "  Invert Position: %d", (int) this->invert_position_);
+  ESP_LOGCONFIG(TAG,
+                "  Device Pin: %d\n"
+                "  Invert Position: %d",
+                this->pin_, (int) this->invert_position_);
 }
 
 void Am43Component::setup() {
@@ -40,6 +42,7 @@ void Am43Component::loop() {
 
 CoverTraits Am43Component::get_traits() {
   auto traits = CoverTraits();
+  traits.set_supports_stop(true);
   traits.set_supports_position(true);
   traits.set_supports_tilt(false);
   traits.set_is_assumed_state(false);
@@ -65,7 +68,7 @@ void Am43Component::control(const CoverCall &call) {
 
     if (this->invert_position_)
       pos = 1 - pos;
-    auto *packet = this->encoder_->get_set_position_request(100 - (uint8_t)(pos * 100));
+    auto *packet = this->encoder_->get_set_position_request(100 - (uint8_t) (pos * 100));
     auto status =
         esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(), this->char_handle_,
                                  packet->length, packet->data, ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);

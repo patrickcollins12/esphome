@@ -1,15 +1,14 @@
 #pragma once
 
-#include "esphome/core/helpers.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 
 #ifdef USE_ESP32
 
 #include <string>
 #include <esp_bt_defs.h>
 
-namespace esphome {
-namespace esp32_ble {
+namespace esphome::esp32_ble {
 
 class ESPBTUUID {
  public:
@@ -20,6 +19,7 @@ class ESPBTUUID {
   static ESPBTUUID from_uint32(uint32_t uuid);
 
   static ESPBTUUID from_raw(const uint8_t *data);
+  static ESPBTUUID from_raw_reversed(const uint8_t *data);
 
   static ESPBTUUID from_raw(const std::string &data);
 
@@ -40,7 +40,6 @@ class ESPBTUUID {
   esp_bt_uuid_t uuid_;
 };
 
-}  // namespace esp32_ble
-}  // namespace esphome
+}  // namespace esphome::esp32_ble
 
 #endif

@@ -26,8 +26,6 @@ static const uint16_t SCD30_CMD_TEMPERATURE_OFFSET = 0x5403;
 static const uint16_t SCD30_CMD_SOFT_RESET = 0xD304;
 
 void SCD30Component::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up scd30...");
-
 #ifdef USE_ESP8266
   Wire.setClockStretchLimit(150000);
 #endif
@@ -42,13 +40,18 @@ void SCD30Component::setup() {
   ESP_LOGD(TAG, "SCD30 Firmware v%0d.%02d", (uint16_t(raw_firmware_version[0]) >> 8),
            uint16_t(raw_firmware_version[0] & 0xFF));
 
-  if (this->temperature_offset_ != 0) {
-    if (!this->write_command(SCD30_CMD_TEMPERATURE_OFFSET, (uint16_t)(temperature_offset_ * 100.0))) {
-      ESP_LOGE(TAG, "Sensor SCD30 error setting temperature offset.");
-      this->error_code_ = MEASUREMENT_INIT_FAILED;
-      this->mark_failed();
-      return;
-    }
+  uint16_t temp_offset;
+  if (this->temperature_offset_ > 0) {
+    temp_offset = (this->temperature_offset_ * 100);
+  } else {
+    temp_offset = 0;
+  }
+
+  if (!this->write_command(SCD30_CMD_TEMPERATURE_OFFSET, temp_offset)) {
+    ESP_LOGE(TAG, "Sensor SCD30 error setting temperature offset.");
+    this->error_code_ = MEASUREMENT_INIT_FAILED;
+    this->mark_failed();
+    return;
   }
 #ifdef USE_ESP32
   // According ESP32 clock stretching is typically 30ms and up to 150ms "due to
@@ -117,16 +120,16 @@ void SCD30Component::dump_config() {
   if (this->is_failed()) {
     switch (this->error_code_) {
       case COMMUNICATION_FAILED:
-        ESP_LOGW(TAG, "Communication failed! Is the sensor connected?");
+        ESP_LOGW(TAG, ESP_LOG_MSG_COMM_FAIL);
         break;
       case MEASUREMENT_INIT_FAILED:
-        ESP_LOGW(TAG, "Measurement Initialization failed!");
+        ESP_LOGW(TAG, "Measurement Initialization failed");
         break;
       case FIRMWARE_IDENTIFICATION_FAILED:
         ESP_LOGW(TAG, "Unable to read sensor firmware version");
         break;
       default:
-        ESP_LOGW(TAG, "Unknown setup error!");
+        ESP_LOGW(TAG, "Unknown setup error");
         break;
     }
   }
@@ -135,10 +138,13 @@ void SCD30Component::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Altitude compensation: %dm", this->altitude_compensation_);
   }
-  ESP_LOGCONFIG(TAG, "  Automatic self calibration: %s", ONOFF(this->enable_asc_));
-  ESP_LOGCONFIG(TAG, "  Ambient pressure compensation: %dmBar", this->ambient_pressure_compensation_);
-  ESP_LOGCONFIG(TAG, "  Temperature offset: %.2f °C", this->temperature_offset_);
-  ESP_LOGCONFIG(TAG, "  Update interval: %ds", this->update_interval_);
+  ESP_LOGCONFIG(TAG,
+                "  Automatic self calibration: %s\n"
+                "  Ambient pressure compensation: %dmBar\n"
+                "  Temperature offset: %.2f °C\n"
+                "  Update interval: %ds",
+                ONOFF(this->enable_asc_), this->ambient_pressure_compensation_, this->temperature_offset_,
+                this->update_interval_);
   LOG_SENSOR("  ", "CO2", this->co2_sensor_);
   LOG_SENSOR("  ", "Temperature", this->temperature_sensor_);
   LOG_SENSOR("  ", "Humidity", this->humidity_sensor_);

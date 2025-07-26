@@ -5,6 +5,8 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/spi/spi.h"
 
+#include <cinttypes>
+
 namespace esphome {
 namespace cs5460a {
 
@@ -75,7 +77,6 @@ class CS5460AComponent : public Component,
 
   void setup() override;
   void loop() override {}
-  float get_setup_priority() const override { return setup_priority::DATA; }
   void dump_config() override;
 
  protected:

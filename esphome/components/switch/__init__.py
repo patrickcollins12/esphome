@@ -1,8 +1,8 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation
 from esphome.automation import Condition, maybe_simple_id
-from esphome.components import mqtt
+import esphome.codegen as cg
+from esphome.components import mqtt, web_server
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_DEVICE_CLASS,
     CONF_ENTITY_CATEGORY,
@@ -14,13 +14,14 @@ from esphome.const import (
     CONF_ON_TURN_ON,
     CONF_RESTORE_MODE,
     CONF_TRIGGER_ID,
+    CONF_WEB_SERVER,
     DEVICE_CLASS_EMPTY,
     DEVICE_CLASS_OUTLET,
     DEVICE_CLASS_SWITCH,
 )
 from esphome.core import CORE, coroutine_with_priority
+from esphome.core.entity_helpers import entity_duplicate_validator, setup_entity
 from esphome.cpp_generator import MockObjClass
-from esphome.cpp_helpers import setup_entity
 
 CODEOWNERS = ["@esphome/core"]
 IS_PLATFORM_COMPONENT = True
@@ -64,82 +65,79 @@ SwitchTurnOffTrigger = switch_ns.class_(
 validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True)
 
 
-_SWITCH_SCHEMA = cv.ENTITY_BASE_SCHEMA.extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA).extend(
-    {
-        cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSwitchComponent),
-        cv.Optional(CONF_INVERTED): cv.boolean,
-        cv.Optional(CONF_ON_TURN_ON): automation.validate_automation(
-            {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(SwitchTurnOnTrigger),
-            }
-        ),
-        cv.Optional(CONF_ON_TURN_OFF): automation.validate_automation(
-            {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(SwitchTurnOffTrigger),
-            }
-        ),
-        cv.Optional(CONF_DEVICE_CLASS): validate_device_class,
-    }
+_SWITCH_SCHEMA = (
+    cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
+    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(
+        {
+            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSwitchComponent),
+            cv.Optional(CONF_INVERTED): cv.boolean,
+            cv.Optional(CONF_RESTORE_MODE, default="ALWAYS_OFF"): cv.enum(
+                RESTORE_MODES, upper=True, space="_"
+            ),
+            cv.Optional(CONF_ON_TURN_ON): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(SwitchTurnOnTrigger),
+                }
+            ),
+            cv.Optional(CONF_ON_TURN_OFF): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(SwitchTurnOffTrigger),
+                }
+            ),
+            cv.Optional(CONF_DEVICE_CLASS): validate_device_class,
+        }
+    )
 )
 
-_UNDEF = object()
+
+_SWITCH_SCHEMA.add_extra(entity_duplicate_validator("switch"))
 
 
 def switch_schema(
-    class_: MockObjClass = _UNDEF,
+    class_: MockObjClass,
     *,
-    entity_category: str = _UNDEF,
-    device_class: str = _UNDEF,
-    icon: str = _UNDEF,
     block_inverted: bool = False,
-    default_restore_mode: str = "RESTORE_DEFAULT_OFF",
+    default_restore_mode: str = cv.UNDEFINED,
+    device_class: str = cv.UNDEFINED,
+    entity_category: str = cv.UNDEFINED,
+    icon: str = cv.UNDEFINED,
 ):
-    schema = _SWITCH_SCHEMA.extend(
-        {
-            cv.Optional(CONF_RESTORE_MODE, default=default_restore_mode): cv.enum(
-                RESTORE_MODES, upper=True, space="_"
-            ),
-        }
-    )
-    if class_ is not _UNDEF:
-        schema = schema.extend({cv.GenerateID(): cv.declare_id(class_)})
-    if entity_category is not _UNDEF:
-        schema = schema.extend(
-            {
-                cv.Optional(
-                    CONF_ENTITY_CATEGORY, default=entity_category
-                ): cv.entity_category
-            }
-        )
-    if device_class is not _UNDEF:
-        schema = schema.extend(
-            {
-                cv.Optional(
-                    CONF_DEVICE_CLASS, default=device_class
-                ): validate_device_class
-            }
-        )
-    if icon is not _UNDEF:
-        schema = schema.extend({cv.Optional(CONF_ICON, default=icon): cv.icon})
+    schema = {cv.GenerateID(): cv.declare_id(class_)}
+
+    for key, default, validator in [
+        (CONF_DEVICE_CLASS, device_class, validate_device_class),
+        (CONF_ENTITY_CATEGORY, entity_category, cv.entity_category),
+        (CONF_ICON, icon, cv.icon),
+        (
+            CONF_RESTORE_MODE,
+            default_restore_mode,
+            cv.enum(RESTORE_MODES, upper=True, space="_")
+            if default_restore_mode is not cv.UNDEFINED
+            else cv.UNDEFINED,
+        ),
+    ]:
+        if default is not cv.UNDEFINED:
+            schema[cv.Optional(key, default=default)] = validator
+
     if block_inverted:
-        schema = schema.extend(
-            {
-                cv.Optional(CONF_INVERTED): cv.invalid(
-                    "Inverted is not supported for this platform!"
-                )
-            }
+        schema[cv.Optional(CONF_INVERTED)] = cv.invalid(
+            "Inverted is not supported for this platform!"
         )
-    return schema
+
+    return _SWITCH_SCHEMA.extend(schema)
 
 
-SWITCH_SCHEMA = switch_schema()  # for compatibility
+# Remove before 2025.11.0
+SWITCH_SCHEMA = switch_schema(Switch)
+SWITCH_SCHEMA.add_extra(cv.deprecated_schema_constant("switch"))
 
 
 async def setup_switch_core_(var, config):
-    await setup_entity(var, config)
+    await setup_entity(var, config, "switch")
 
-    if CONF_INVERTED in config:
-        cg.add(var.set_inverted(config[CONF_INVERTED]))
+    if (inverted := config.get(CONF_INVERTED)) is not None:
+        cg.add(var.set_inverted(inverted))
     for conf in config.get(CONF_ON_TURN_ON, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [], conf)
@@ -147,12 +145,15 @@ async def setup_switch_core_(var, config):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [], conf)
 
-    if CONF_MQTT_ID in config:
-        mqtt_ = cg.new_Pvariable(config[CONF_MQTT_ID], var)
+    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
+        mqtt_ = cg.new_Pvariable(mqtt_id, var)
         await mqtt.register_mqtt_component(mqtt_, config)
 
-    if CONF_DEVICE_CLASS in config:
-        cg.add(var.set_device_class(config[CONF_DEVICE_CLASS]))
+    if web_server_config := config.get(CONF_WEB_SERVER):
+        await web_server.add_entity_config(var, web_server_config)
+
+    if (device_class := config.get(CONF_DEVICE_CLASS)) is not None:
+        cg.add(var.set_device_class(device_class))
 
     cg.add(var.set_restore_mode(config[CONF_RESTORE_MODE]))
 
@@ -161,6 +162,7 @@ async def register_switch(var, config):
     if not CORE.has_id(config[CONF_ID]):
         var = cg.Pvariable(config[CONF_ID], var)
     cg.add(cg.App.register_switch(var))
+    CORE.register_platform_component("switch", var)
     await setup_switch_core_(var, config)
 
 

@@ -1,6 +1,5 @@
-#ifdef USE_ARDUINO
-
 #include "captive_portal.h"
+#ifdef USE_CAPTIVE_PORTAL
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/components/wifi/wifi_component.h"
@@ -14,7 +13,7 @@ static const char *const TAG = "captive_portal";
 void CaptivePortal::handle_config(AsyncWebServerRequest *request) {
   AsyncResponseStream *stream = request->beginResponseStream("application/json");
   stream->addHeader("cache-control", "public, max-age=0, must-revalidate");
-  stream->printf(R"({"name":"%s","aps":[{})", App.get_name().c_str());
+  stream->printf(R"({"mac":"%s","name":"%s","aps":[{})", get_mac_address_pretty().c_str(), App.get_name().c_str());
 
   for (auto &scan : wifi::global_wifi_component->get_scan_result()) {
     if (scan.get_is_hidden())
@@ -30,7 +29,7 @@ void CaptivePortal::handle_config(AsyncWebServerRequest *request) {
 void CaptivePortal::handle_wifisave(AsyncWebServerRequest *request) {
   std::string ssid = request->arg("ssid").c_str();
   std::string psk = request->arg("psk").c_str();
-  ESP_LOGI(TAG, "Captive Portal Requested WiFi Settings Change:");
+  ESP_LOGI(TAG, "Requested WiFi Settings Change:");
   ESP_LOGI(TAG, "  SSID='%s'", ssid.c_str());
   ESP_LOGI(TAG, "  Password=" LOG_SECRET("'%s'"), psk.c_str());
   wifi::global_wifi_component->save_wifi_sta(ssid, psk);
@@ -38,18 +37,26 @@ void CaptivePortal::handle_wifisave(AsyncWebServerRequest *request) {
   request->redirect("/?save");
 }
 
-void CaptivePortal::setup() {}
+void CaptivePortal::setup() {
+#ifndef USE_ARDUINO
+  // No DNS server needed for non-Arduino frameworks
+  this->disable_loop();
+#endif
+}
 void CaptivePortal::start() {
   this->base_->init();
   if (!this->initialized_) {
     this->base_->add_handler(this);
-    this->base_->add_ota_handler();
   }
 
+#ifdef USE_ARDUINO
   this->dns_server_ = make_unique<DNSServer>();
   this->dns_server_->setErrorReplyCode(DNSReplyCode::NoError);
   network::IPAddress ip = wifi::global_wifi_component->wifi_soft_ap_ip();
-  this->dns_server_->start(53, "*", (uint32_t) ip);
+  this->dns_server_->start(53, "*", ip);
+  // Re-enable loop() when DNS server is started
+  this->enable_loop();
+#endif
 
   this->base_->get_server()->onNotFound([this](AsyncWebServerRequest *req) {
     if (!this->active_ || req->host().c_str() == wifi::global_wifi_component->wifi_soft_ap_ip().str()) {
@@ -67,7 +74,11 @@ void CaptivePortal::start() {
 
 void CaptivePortal::handleRequest(AsyncWebServerRequest *req) {
   if (req->url() == "/") {
-    AsyncWebServerResponse *response = req->beginResponse_P(200, "text/html", INDEX_GZ, sizeof(INDEX_GZ));
+#ifndef USE_ESP8266
+    auto *response = req->beginResponse(200, "text/html", INDEX_GZ, sizeof(INDEX_GZ));
+#else
+    auto *response = req->beginResponse_P(200, "text/html", INDEX_GZ, sizeof(INDEX_GZ));
+#endif
     response->addHeader("Content-Encoding", "gzip");
     req->send(response);
     return;
@@ -91,5 +102,4 @@ CaptivePortal *global_captive_portal = nullptr;  // NOLINT(cppcoreguidelines-avo
 
 }  // namespace captive_portal
 }  // namespace esphome
-
-#endif  // USE_ARDUINO
+#endif

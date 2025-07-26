@@ -1,12 +1,16 @@
+import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component
+from esphome.config_helpers import filter_source_files_from_platform
+import esphome.config_validation as cv
 from esphome.const import (
+    CONF_DISABLED,
     CONF_ID,
     CONF_PORT,
     CONF_PROTOCOL,
-    CONF_SERVICES,
     CONF_SERVICE,
+    CONF_SERVICES,
+    PlatformFramework,
 )
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.core import CORE, coroutine_with_priority
 
 CODEOWNERS = ["@esphome/core"]
@@ -31,12 +35,11 @@ SERVICE_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_SERVICE): cv.string,
         cv.Required(CONF_PROTOCOL): cv.string,
-        cv.Optional(CONF_PORT, default=0): cv.Any(0, cv.port),
-        cv.Optional(CONF_TXT, default={}): {cv.string: cv.string},
+        cv.Optional(CONF_PORT, default=0): cv.templatable(cv.Any(0, cv.port)),
+        cv.Optional(CONF_TXT, default={}): {cv.string: cv.templatable(cv.string)},
     }
 )
 
-CONF_DISABLED = "disabled"
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -71,6 +74,9 @@ def mdns_service(
 
 @coroutine_with_priority(55.0)
 async def to_code(config):
+    if config[CONF_DISABLED] is True:
+        return
+
     if CORE.using_arduino:
         if CORE.is_esp32:
             cg.add_library("ESPmDNS", None)
@@ -79,8 +85,8 @@ async def to_code(config):
         elif CORE.is_rp2040:
             cg.add_library("LEAmDNS", None)
 
-    if config[CONF_DISABLED]:
-        return
+    if CORE.using_esp_idf:
+        add_idf_component(name="espressif/mdns", ref="1.8.2")
 
     cg.add_define("USE_MDNS")
 
@@ -89,12 +95,36 @@ async def to_code(config):
 
     for service in config[CONF_SERVICES]:
         txt = [
-            mdns_txt_record(txt_key, txt_value)
+            cg.StructInitializer(
+                MDNSTXTRecord,
+                ("key", txt_key),
+                ("value", await cg.templatable(txt_value, [], cg.std_string)),
+            )
             for txt_key, txt_value in service[CONF_TXT].items()
         ]
-
         exp = mdns_service(
-            service[CONF_SERVICE], service[CONF_PROTOCOL], service[CONF_PORT], txt
+            service[CONF_SERVICE],
+            service[CONF_PROTOCOL],
+            await cg.templatable(service[CONF_PORT], [], cg.uint16),
+            txt,
         )
 
         cg.add(var.add_extra_service(exp))
+
+
+FILTER_SOURCE_FILES = filter_source_files_from_platform(
+    {
+        "mdns_esp32.cpp": {
+            PlatformFramework.ESP32_ARDUINO,
+            PlatformFramework.ESP32_IDF,
+        },
+        "mdns_esp8266.cpp": {PlatformFramework.ESP8266_ARDUINO},
+        "mdns_host.cpp": {PlatformFramework.HOST_NATIVE},
+        "mdns_rp2040.cpp": {PlatformFramework.RP2040_ARDUINO},
+        "mdns_libretiny.cpp": {
+            PlatformFramework.BK72XX_ARDUINO,
+            PlatformFramework.RTL87XX_ARDUINO,
+            PlatformFramework.LN882X_ARDUINO,
+        },
+    }
+)

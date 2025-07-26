@@ -1,6 +1,7 @@
 #include "current_based_cover.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "esphome/core/application.h"
 #include <cfloat>
 
 namespace esphome {
@@ -12,6 +13,7 @@ using namespace esphome::cover;
 
 CoverTraits CurrentBasedCover::get_traits() {
   auto traits = CoverTraits();
+  traits.set_supports_stop(true);
   traits.set_supports_position(true);
   traits.set_supports_toggle(true);
   traits.set_is_assumed_state(false);
@@ -37,7 +39,7 @@ void CurrentBasedCover::control(const CoverCall &call) {
   }
   if (call.get_position().has_value()) {
     auto pos = *call.get_position();
-    if (pos == this->position) {
+    if (fabsf(this->position - pos) < 0.01) {
       // already at target
     } else {
       auto op = pos < this->position ? COVER_OPERATION_CLOSING : COVER_OPERATION_OPENING;
@@ -59,7 +61,7 @@ void CurrentBasedCover::loop() {
   if (this->current_operation == COVER_OPERATION_IDLE)
     return;
 
-  const uint32_t now = millis();
+  const uint32_t now = App.get_loop_component_start_time();
 
   if (this->current_operation == COVER_OPERATION_OPENING) {
     if (this->malfunction_detection_ && this->is_closing_()) {  // Malfunction
@@ -103,7 +105,8 @@ void CurrentBasedCover::loop() {
       ESP_LOGD(TAG, "'%s' - Close position reached. Took %.1fs.", this->name_.c_str(), dur);
       this->direction_idle_(COVER_CLOSED);
     }
-  } else if (now - this->start_dir_time_ > this->max_duration_) {
+  }
+  if (now - this->start_dir_time_ > this->max_duration_) {
     ESP_LOGD(TAG, "'%s' - Max duration reached. Stopping cover.", this->name_.c_str());
     this->direction_idle_();
   }
@@ -148,8 +151,10 @@ void CurrentBasedCover::dump_config() {
   if (this->max_duration_ != UINT32_MAX) {
     ESP_LOGCONFIG(TAG, "Maximum duration: %.1fs", this->max_duration_ / 1e3f);
   }
-  ESP_LOGCONFIG(TAG, "Start sensing delay: %.1fs", this->start_sensing_delay_ / 1e3f);
-  ESP_LOGCONFIG(TAG, "Malfunction detection: %s", YESNO(this->malfunction_detection_));
+  ESP_LOGCONFIG(TAG,
+                "Start sensing delay: %.1fs\n"
+                "Malfunction detection: %s",
+                this->start_sensing_delay_ / 1e3f, YESNO(this->malfunction_detection_));
 }
 
 float CurrentBasedCover::get_setup_priority() const { return setup_priority::DATA; }

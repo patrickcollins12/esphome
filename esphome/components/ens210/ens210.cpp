@@ -87,7 +87,6 @@ static uint32_t crc7(uint32_t value) {
 }
 
 void ENS210Component::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up ENS210...");
   uint8_t data[2];
   uint16_t part_id = 0;
   // Reset
@@ -163,12 +162,12 @@ void ENS210Component::update() {
 
     // Read T_VAL and H_VAL
     if (!this->read_bytes(ENS210_REGISTER_T_VAL, data, 6)) {
-      ESP_LOGE(TAG, "Communication with ENS210 failed!");
+      ESP_LOGE(TAG, ESP_LOG_MSG_COMM_FAIL);
       this->status_set_warning();
       return;
     }
     // Pack bytes for humidity
-    h_val_data = (uint32_t)((uint32_t) data[5] << 16 | (uint32_t) data[4] << 8 | (uint32_t) data[3]);
+    h_val_data = (uint32_t) ((uint32_t) data[5] << 16 | (uint32_t) data[4] << 8 | (uint32_t) data[3]);
     // Extract humidity data and update the status
     extract_measurement_(h_val_data, &humidity_data, &humidity_status);
 
@@ -183,7 +182,7 @@ void ENS210Component::update() {
       return;
     }
     // Pack bytes for temperature
-    t_val_data = (uint32_t)((uint32_t) data[2] << 16 | (uint32_t) data[1] << 8 | (uint32_t) data[0]);
+    t_val_data = (uint32_t) ((uint32_t) data[2] << 16 | (uint32_t) data[1] << 8 | (uint32_t) data[0]);
     // Extract temperature data and update the status
     extract_measurement_(t_val_data, &temperature_data, &temperature_status);
 

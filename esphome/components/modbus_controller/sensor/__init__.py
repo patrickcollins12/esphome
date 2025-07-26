@@ -1,17 +1,17 @@
+import esphome.codegen as cg
 from esphome.components import sensor
 import esphome.config_validation as cv
-import esphome.codegen as cg
+from esphome.const import CONF_ADDRESS, CONF_ID
 
-from esphome.const import CONF_ID, CONF_ADDRESS
 from .. import (
-    add_modbus_base_properties,
-    modbus_controller_ns,
-    modbus_calc_properties,
-    validate_modbus_register,
-    ModbusItemBaseSchema,
-    SensorItem,
     MODBUS_REGISTER_TYPE,
     SENSOR_VALUE_TYPE,
+    ModbusItemBaseSchema,
+    SensorItem,
+    add_modbus_base_properties,
+    modbus_calc_properties,
+    modbus_controller_ns,
+    validate_modbus_register,
 )
 from ..const import (
     CONF_BITMASK,
@@ -32,11 +32,11 @@ ModbusSensor = modbus_controller_ns.class_(
 )
 
 CONFIG_SCHEMA = cv.All(
-    sensor.SENSOR_SCHEMA.extend(cv.COMPONENT_SCHEMA)
+    sensor.sensor_schema(ModbusSensor)
+    .extend(cv.COMPONENT_SCHEMA)
     .extend(ModbusItemBaseSchema)
     .extend(
         {
-            cv.GenerateID(): cv.declare_id(ModbusSensor),
             cv.Optional(CONF_REGISTER_TYPE): cv.enum(MODBUS_REGISTER_TYPE),
             cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
             cv.Optional(CONF_REGISTER_COUNT, default=0): cv.positive_int,

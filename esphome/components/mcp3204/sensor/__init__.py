@@ -1,8 +1,9 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import sensor, voltage_sampler
+import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_NUMBER
-from .. import mcp3204_ns, MCP3204
+
+from .. import MCP3204, mcp3204_ns
 
 AUTO_LOAD = ["voltage_sampler"]
 
@@ -13,13 +14,16 @@ MCP3204Sensor = mcp3204_ns.class_(
 )
 CONF_MCP3204_ID = "mcp3204_id"
 
-CONFIG_SCHEMA = sensor.SENSOR_SCHEMA.extend(
-    {
-        cv.GenerateID(): cv.declare_id(MCP3204Sensor),
-        cv.GenerateID(CONF_MCP3204_ID): cv.use_id(MCP3204),
-        cv.Required(CONF_NUMBER): cv.int_range(min=0, max=7),
-    }
-).extend(cv.polling_component_schema("60s"))
+CONFIG_SCHEMA = (
+    sensor.sensor_schema(MCP3204Sensor)
+    .extend(
+        {
+            cv.GenerateID(CONF_MCP3204_ID): cv.use_id(MCP3204),
+            cv.Required(CONF_NUMBER): cv.int_range(min=0, max=7),
+        }
+    )
+    .extend(cv.polling_component_schema("60s"))
+)
 
 
 async def to_code(config):
